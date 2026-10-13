@@ -1,17 +1,18 @@
 Needs: #111 #514
-#111, #514 and #637 (merged) each add a probe line to the portability
-check and raise its expected count by one; together the count is 12.
+#111 and #514 each add a probe line to the portability check, after #637
+and #650 on main, and each raise its expected count from 11 to 12; with
+both, the probe has 13.
 
 diff --git a/tests/buildsystem/test-suite-portability.sh b/tests/buildsystem/test-suite-portability.sh
-index 4c26726c7..722aea2b3 100755
+index adeeb80955..96fc2a8fdb 100755
 --- a/tests/buildsystem/test-suite-portability.sh
 +++ b/tests/buildsystem/test-suite-portability.sh
-@@ -306,7 +306,7 @@ probe="$work/probe.sh"
+@@ -334,7 +334,7 @@ probe="$work/probe.sh"
  } >"$probe"
  probe_pattern=$(IFS='|'; printf '%s' "${__rule_patterns[*]}")
  hits=$(grep -cE "$probe_pattern" "$probe")
--assert_equal "11" "$hits" "the rule patterns no longer match the constructs they are meant to catch"
-+assert_equal "12" "$hits" "the rule patterns no longer match the constructs they are meant to catch"
+-assert_equal "12" "$hits" "the rule patterns no longer match the constructs they are meant to catch"
++assert_equal "13" "$hits" "the rule patterns no longer match the constructs they are meant to catch"
  
- # The link-flags rule the same way, including the bypass it used to allow: the
- # helpers named in a comment and nowhere else.
+ # The cleanup-function rule the same way: a function that kills and does not
+ # wait is reported, one that waits or uses stop_process is not.

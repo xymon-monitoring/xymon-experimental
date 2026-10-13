@@ -1,0 +1,16 @@
+Needs: #219 #598
+#219 adds XYMONRUNDIR, which configure sets to the log directory; this test, from the other PR, ran without it and touched the real directory.
+
+diff --git a/tests/server/install-empty-ext-dir.sh b/tests/server/install-empty-ext-dir.sh
+index 7fe0ba9b4..e63584fa5 100755
+--- a/tests/server/install-empty-ext-dir.sh
++++ b/tests/server/install-empty-ext-dir.sh
+@@ -40,7 +40,7 @@ vars=(
+ 	XYMONUSER="$(id -un)" HTTPDGID="$(id -gn)"
+ 	XYMONTOPDIR="$dest/top" XYMONHOME="$dest/top/server" XYMONVAR="$dest/var"
+ 	CGIDIR="$dest/top/cgi-bin" SECURECGIDIR="$dest/top/cgi-secure"
+-	XYMONLOGDIR="$dest/log" MANROOT="$dest/man"
++	XYMONLOGDIR="$dest/log" XYMONRUNDIR="$dest/run" MANROOT="$dest/man"
+ 	INSTALLBINDIR="$dest/top/server/bin" INSTALLETCDIR="$dest/etc"
+ 	INSTALLEXTDIR="$dest/top/server/ext" INSTALLTMPDIR="$dest/var/tmp"
+ 	INSTALLWEBDIR="$dest/etc/web" INSTALLWWWDIR="$dest/var/www"

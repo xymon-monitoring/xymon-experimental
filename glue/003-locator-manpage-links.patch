@@ -1,0 +1,115 @@
+Needs: #581 #583
+#581 adds xymond_locator(8); the HTML of #583's pages that refer to it was
+generated without it, so the reference was plain text. Regenerated with
+build/makehtml.sh it is a link.
+
+diff --git a/docs/manpages/man8/xymond_alert.8.html b/docs/manpages/man8/xymond_alert.8.html
+index 0ccb52936..bd3064048 100644
+--- a/docs/manpages/man8/xymond_alert.8.html
++++ b/docs/manpages/man8/xymond_alert.8.html
+@@ -105,7 +105,7 @@ Section: Maintenance Commands (8)<br/>Updated: Version 4.3.30: 4 Sep 2019<br/><a
+       mode. <b>--locatorid</b> and <b>--locatorextra</b> tune the registration;
+       <b>--locatorweight</b> is ignored, since xymond_alert always registers
+       with weight -1. All five, and how the locator chooses a server, are
+-      described in <i>xymond_locator(8).</i>
++      described in <i><a href="../man8/xymond_locator.8.html">xymond_locator</a>(8).</i>
+     <p class="Pp"></p>
+   </dd>
+ </dl>
+@@ -185,7 +185,7 @@ Section: Maintenance Commands (8)<br/>Updated: Version 4.3.30: 4 Sep 2019<br/><a
+ <h1 class="Sh" id="SEE_ALSO"><a class="permalink" href="#SEE_ALSO">SEE
+   ALSO</a></h1>
+ <p class="Pp"><a href="../man5/alerts.cfg.5.html">alerts.cfg</a>(5), <a href="../man8/xymond.8.html">xymond</a>(8), <a href="../man8/xymond_channel.8.html">xymond_channel</a>(8), <a href="../man7/xymon.7.html">xymon</a>(7),
+-    xymond_locator(8)</p>
++    <a href="../man8/xymond_locator.8.html">xymond_locator</a>(8)</p>
+ <p class="Pp"></p>
+ </section>
+ <p>&#160;</p>
+diff --git a/docs/manpages/man8/xymond_channel.8.html b/docs/manpages/man8/xymond_channel.8.html
+index a812f0e18..2298db08b 100644
+--- a/docs/manpages/man8/xymond_channel.8.html
++++ b/docs/manpages/man8/xymond_channel.8.html
+@@ -121,7 +121,7 @@ Section: Maintenance Commands (8)<br/>Updated: Version 4.3.30: 4 Sep 2019<br/><a
+   <dd>Send each message to the server that handles its host, found by asking the
+       service locator at IP:PORT, instead of to a local worker program; no
+       worker program is needed. Requires <b>--service</b>. See
+-      <i>xymond_locator(8).</i>
++      <i><a href="../man8/xymond_locator.8.html">xymond_locator</a>(8).</i>
+     <p class="Pp"></p>
+   </dd>
+   <dt id="service"><a class="permalink" href="#service"><b>--service</b>=<i>TYPE</i></a></dt>
+@@ -145,7 +145,7 @@ Section: Maintenance Commands (8)<br/>Updated: Version 4.3.30: 4 Sep 2019<br/><a
+ <p>&#160;</p>
+ <h1 class="Sh" id="SEE_ALSO"><a class="permalink" href="#SEE_ALSO">SEE
+   ALSO</a></h1>
+-<p class="Pp"><a href="../man8/xymond.8.html">xymond</a>(8), <a href="../man7/xymon.7.html">xymon</a>(7), xymond_locator(8)</p>
++<p class="Pp"><a href="../man8/xymond.8.html">xymond</a>(8), <a href="../man7/xymon.7.html">xymon</a>(7), <a href="../man8/xymond_locator.8.html">xymond_locator</a>(8)</p>
+ <p class="Pp"></p>
+ </section>
+ <p>&#160;</p>
+diff --git a/docs/manpages/man8/xymond_client.8.html b/docs/manpages/man8/xymond_client.8.html
+index 757329088..d4bac0881 100644
+--- a/docs/manpages/man8/xymond_client.8.html
++++ b/docs/manpages/man8/xymond_client.8.html
+@@ -136,7 +136,7 @@ Section: Maintenance Commands (8)<br/>Updated: Version 4.3.30: 4 Sep 2019<br/><a
+       with the service locator at <b>--locator</b>; both are needed for this
+       mode. <b>--locatorid</b>, <b>--locatorweight</b> and <b>--locatorextra</b>
+       tune the registration. All five, and how the locator chooses a server, are
+-      described in <i>xymond_locator(8).</i>
++      described in <i><a href="../man8/xymond_locator.8.html">xymond_locator</a>(8).</i>
+     <p class="Pp"></p>
+   </dd>
+ </dl>
+@@ -163,7 +163,7 @@ Section: Maintenance Commands (8)<br/>Updated: Version 4.3.30: 4 Sep 2019<br/><a
+ <h1 class="Sh" id="SEE_ALSO"><a class="permalink" href="#SEE_ALSO">SEE
+   ALSO</a></h1>
+ <p class="Pp"><a href="../man5/analysis.cfg.5.html">analysis.cfg</a>(5), <a href="../man8/xymond.8.html">xymond</a>(8), <a href="../man8/xymond_channel.8.html">xymond_channel</a>(8), <a href="../man7/xymon.7.html">xymon</a>(7),
+-    xymond_locator(8)</p>
++    <a href="../man8/xymond_locator.8.html">xymond_locator</a>(8)</p>
+ <p class="Pp"></p>
+ </section>
+ <p>&#160;</p>
+diff --git a/docs/manpages/man8/xymond_hostdata.8.html b/docs/manpages/man8/xymond_hostdata.8.html
+index 8194ce5d5..0f99c4c36 100644
+--- a/docs/manpages/man8/xymond_hostdata.8.html
++++ b/docs/manpages/man8/xymond_hostdata.8.html
+@@ -79,7 +79,7 @@ Section: Maintenance Commands (8)<br/>Updated: Version 4.3.30: 4 Sep 2019<br/><a
+       with the service locator at <b>--locator</b>; both are needed for this
+       mode. <b>--locatorid</b>, <b>--locatorweight</b> and <b>--locatorextra</b>
+       tune the registration. All five, and how the locator chooses a server, are
+-      described in <i>xymond_locator(8).</i>
++      described in <i><a href="../man8/xymond_locator.8.html">xymond_locator</a>(8).</i>
+     <p class="Pp"></p>
+   </dd>
+ </dl>
+@@ -95,7 +95,7 @@ Section: Maintenance Commands (8)<br/>Updated: Version 4.3.30: 4 Sep 2019<br/><a
+ <p>&#160;</p>
+ <h1 class="Sh" id="SEE_ALSO"><a class="permalink" href="#SEE_ALSO">SEE
+   ALSO</a></h1>
+-<p class="Pp"><a href="../man8/xymond.8.html">xymond</a>(8), <a href="../man8/xymond_channel.8.html">xymond_channel</a>(8), <a href="../man7/xymon.7.html">xymon</a>(7), xymond_locator(8)</p>
++<p class="Pp"><a href="../man8/xymond.8.html">xymond</a>(8), <a href="../man8/xymond_channel.8.html">xymond_channel</a>(8), <a href="../man7/xymon.7.html">xymon</a>(7), <a href="../man8/xymond_locator.8.html">xymond_locator</a>(8)</p>
+ <p class="Pp"></p>
+ </section>
+ <p>&#160;</p>
+diff --git a/docs/manpages/man8/xymond_rrd.8.html b/docs/manpages/man8/xymond_rrd.8.html
+index 98ca8a426..c0927f725 100644
+--- a/docs/manpages/man8/xymond_rrd.8.html
++++ b/docs/manpages/man8/xymond_rrd.8.html
+@@ -106,7 +106,7 @@ Section: Maintenance Commands (8)<br/>Updated: Version 4.3.30: 4 Sep 2019<br/><a
+       with the service locator at <b>--locator</b>; both are needed for this
+       mode. <b>--locatorid</b>, <b>--locatorweight</b> and <b>--locatorextra</b>
+       tune the registration. All five, and how the locator chooses a server, are
+-      described in <i>xymond_locator(8).</i>
++      described in <i><a href="../man8/xymond_locator.8.html">xymond_locator</a>(8).</i>
+     <p class="Pp"></p>
+   </dd>
+ </dl>
+@@ -542,7 +542,7 @@ exit 0</pre>
+ <h1 class="Sh" id="SEE_ALSO"><a class="permalink" href="#SEE_ALSO">SEE
+   ALSO</a></h1>
+ <p class="Pp"><a href="../man8/xymond_channel.8.html">xymond_channel</a>(8), <a href="../man8/xymond.8.html">xymond</a>(8), <a href="../man5/xymonserver.cfg.5.html">xymonserver.cfg</a>(5), <a href="../man7/xymon.7.html">xymon</a>(7),
+-    xymond_locator(8)</p>
++    <a href="../man8/xymond_locator.8.html">xymond_locator</a>(8)</p>
+ <p class="Pp"></p>
+ </section>
+ <p>&#160;</p>

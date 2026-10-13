@@ -1,0 +1,82 @@
+name: experimental build
+
+# Integrates the open, non-draft pull requests of xymon-monitoring/xymon that
+# carry a milestone, in milestone order, on top of main. See README.md.
+#
+# Runs pull-request code only as git operations; it holds no secret and its
+# token can only read.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: experimental-build
+  cancel-in-progress: false
+
+jobs:
+  integrate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@v4
+        with:
+          path: experimental
+
+      - name: Check out the recorded resolutions
+        uses: actions/checkout@v4
+        with:
+          ref: rerere-cache
+          path: rerere
+
+      - name: Clone Xymon and fetch the pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh pr list -R xymon-monitoring/xymon --state open -L 500 \
+            --json number,isDraft,baseRefName,headRefName,milestone,headRefOid,body > prs.json
+          git clone -q https://github.com/xymon-monitoring/xymon xymon
+          cd xymon
+          refs=$(jq -r '.[] | select((.isDraft|not) and .milestone != null) | "+refs/pull/\(.number)/head:refs/pr/\(.number)"' ../prs.json)
+          git fetch -q origin $refs
+          git fetch -q https://github.com/bonomani/xymon cmake/bootstrap
+          git rev-parse FETCH_HEAD > ../overlay.sha
+          git rev-parse origin/main > ../base.sha
+
+      - name: Integrate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd xymon
+          git config user.name "xymon-experimental"
+          git config user.email "xymon-experimental@users.noreply.github.com"
+          mkdir -p .git/rr-cache
+          cp -R ../rerere/rr-cache/. .git/rr-cache/
+          git checkout -q --detach origin/main
+          bash ../experimental/scripts/select.sh ../prs.json origin/main > ../plan.tsv
+          # A glue patch's Needs is met by a pull request merged upstream.
+          sed -n '1s/^Needs://p' ../experimental/glue/*.patch | tr ' ' '\n' | tr -d '#' | sort -u \
+            | while read -r n; do
+                [ -n "$n" ] || continue
+                [ "$(gh pr view "$n" -R xymon-monitoring/xymon --json state -q .state)" = MERGED ] && echo "$n"
+              done > ../merged.txt
+          bash ../experimental/scripts/integrate.sh ../plan.tsv ../experimental/glue ../merged.txt
+          bash ../experimental/scripts/report.sh ../plan.tsv ../report.tsv "$(cat ../base.sha)" "$(cat ../overlay.sha)" > ../EXPERIMENTAL.md
+          cat ../EXPERIMENTAL.md >> "$GITHUB_STEP_SUMMARY"
+          awk -F'\t' '$1=="milestone"{print $3, "refs/heads/experimental/" $2}' ../report.tsv > ../milestones.txt
+          while read -r sha ref; do git update-ref "$ref" "$sha"; done < ../milestones.txt
+          git bundle create ../experimental.bundle $(cut -d' ' -f2 ../milestones.txt)
+
+      - name: Keep the result
+        uses: actions/upload-artifact@v4
+        with:
+          name: experimental-${{ github.run_id }}
+          path: |
+            EXPERIMENTAL.md
+            plan.tsv
+            report.tsv
+            experimental.bundle

@@ -1,0 +1,16 @@
+Needs: #219 #414
+#219 adds XYMONRUNDIR, which configure sets to the log directory; this test, from the other PR, ran without it and touched the real directory.
+
+diff --git a/tests/server/install-static-wwwdir.sh b/tests/server/install-static-wwwdir.sh
+index 4b374f6d6..7a0410623 100755
+--- a/tests/server/install-static-wwwdir.sh
++++ b/tests/server/install-static-wwwdir.sh
+@@ -45,7 +45,7 @@ install_vars() {
+ 		"XYMONUSER=$(id -un)" "HTTPDGID=$(id -gn)" \
+ 		"XYMONTOPDIR=$d/top" "XYMONHOME=$d/top/server" "XYMONVAR=$d/var" \
+ 		"CGIDIR=$d/top/cgi-bin" "SECURECGIDIR=$d/top/cgi-secure" \
+-		"XYMONLOGDIR=$d/log" "MANROOT=$d/man" \
++		"XYMONLOGDIR=$d/log" "XYMONRUNDIR=$d/run" "MANROOT=$d/man" \
+ 		"INSTALLBINDIR=$d/top/server/bin" "INSTALLETCDIR=$d/etc" \
+ 		"INSTALLEXTDIR=$d/top/server/ext" "INSTALLTMPDIR=$d/var/tmp" \
+ 		"INSTALLWEBDIR=$d/etc/web" "INSTALLWWWDIR=$d/var/www"

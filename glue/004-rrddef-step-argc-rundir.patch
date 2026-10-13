@@ -1,0 +1,16 @@
+Needs: #219 #406
+#219 adds XYMONRUNDIR, which configure sets to the log directory; this test, from the other PR, ran without it and touched the real directory.
+
+diff --git a/tests/rrd/rrddef-step-argc.sh b/tests/rrd/rrddef-step-argc.sh
+index 590aa10a3..40322ea7d 100755
+--- a/tests/rrd/rrddef-step-argc.sh
++++ b/tests/rrd/rrddef-step-argc.sh
+@@ -46,7 +46,7 @@ EOF
+ 	printf 'disk report\n'
+ 	printf '/dev/sda1 1000000 400000 600000 40%% /data\n'
+ 	printf '@@\n'
+-} | env XYMONHOME="$WORK" XYMONTMP="$WORK/tmp" HOSTSCFG="$WORK/hosts.cfg" \
++} | env XYMONHOME="$WORK" XYMONTMP="$WORK/tmp" XYMONRUNDIR="$WORK/tmp" HOSTSCFG="$WORK/hosts.cfg" \
+ 	"$XYMOND_RRD" --rrddir="$WORK/rrd" --no-cache 2>"$WORK/worker.log" \
+ 	|| { sed -n '1,10p' "$WORK/worker.log" >&2
+ 	     fail "xymond_rrd died on a disk status while rrddefinitions.cfg carries its own step setting"; }

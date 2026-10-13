@@ -1,0 +1,21 @@
+Needs: #495 #614
+#495 names the sender with inet_ntoa(cwalk->addr.sin_addr); #614 makes a
+connection's address a sockaddr_storage, where that does not compile.
+Log it through sockaddr_text() instead.
+
+diff --git a/xymond/xymond.c b/xymond/xymond.c
+index 08826f853..e9a5ee6ae 100644
+--- a/xymond/xymond.c
++++ b/xymond/xymond.c
+@@ -7057,8 +7057,10 @@ int main(int argc, char *argv[])
+ 						 * that was cut in the middle. Drop it, and say
+ 						 * so, which is the part that was missing before.
+ 						 */
++						char cwtext[IP_ADDR_STRLEN];
++
+ 						errprintf("Truncated message from %s - %d bytes before the connection broke: %s\n",
+-							  inet_ntoa(cwalk->addr.sin_addr), cwalk->buflen,
++							  sockaddr_text((struct sockaddr *)&cwalk->addr, cwtext, sizeof(cwtext)), cwalk->buflen,
+ 							  strerror(errno));
+ 						shutdown(cwalk->sock, SHUT_RDWR);
+ 						close(cwalk->sock);

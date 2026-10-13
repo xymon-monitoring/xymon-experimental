@@ -63,6 +63,10 @@ jobs:
           mkdir -p .git/rr-cache
           cp -R ../rerere/rr-cache/. .git/rr-cache/
           git checkout -q --detach origin/main
+          # Every commit dated as main's head: the same inputs then give the
+          # same commits, so a run that changes nothing pushes nothing and
+          # starts no lanes.
+          export GIT_AUTHOR_DATE=$(git log -1 --format=%cI origin/main) GIT_COMMITTER_DATE=$(git log -1 --format=%cI origin/main)
           bash ../experimental/scripts/select.sh ../prs.json origin/main > ../plan.tsv
           # A glue patch's Needs is met by a pull request merged upstream.
           head -qn1 ../experimental/glue/*.patch | sed 's/^Needs://' | tr ' ' '\n' | tr -d '#' | sort -u \
@@ -126,7 +130,8 @@ jobs:
             git checkout -q --detach "$ref"
             git rm -q -r --ignore-unmatch .github ci cmake-local cmake docker
             git checkout "$overlay" -- .github ci cmake-local cmake docker
-            git commit -q -m "CI only: the lane machinery from cmake/bootstrap at ${overlay:0:9}"
+            d=$(git log -1 --format=%cI HEAD)
+            GIT_AUTHOR_DATE=$d GIT_COMMITTER_DATE=$d git commit -q -m "CI only: the lane machinery from cmake/bootstrap at ${overlay:0:9}"
             git update-ref "refs/c/$m" HEAD
             refs="$refs +refs/c/$m:refs/heads/candidate/$m"
           done

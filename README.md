@@ -30,7 +30,9 @@ requests, `experimental/4.3.32` those and the 4.3.32 ones, and so on.
 ## Conflicts
 
 A conflict resolved once is resolved again the same way: git's `rerere`
-replays the resolutions kept on the `rerere-cache` branch. A conflict it has
+replays the resolutions kept on the `rerere-cache` branch. A file a pull request
+deletes is deleted, even where an earlier pull request edited it: rerere does
+not record that kind of conflict, and the deletion is the pull request's intent. A conflict it has
 not seen leaves that pull request out of the build, with every pull request
 that depends on it, and the report says which and why. The build goes on.
 

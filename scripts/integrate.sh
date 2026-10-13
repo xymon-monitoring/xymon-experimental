@@ -6,7 +6,8 @@
 # pull requests already merged upstream, which satisfy a glue patch's Needs.
 #
 # Each PR is merged, or its own commits cherry-picked, with rerere resolving
-# the conflicts it has seen before. A conflict rerere does not know leaves
+# the conflicts it has seen before, and a file the PR deletes deleted even
+# where an earlier PR edited it. A conflict rerere does not know leaves
 # the PR out, and with it every PR that depends on it; the build goes on.
 #
 # Glue patches: a change needed only when several PRs meet, applied at the end
@@ -61,6 +62,18 @@ end_milestone() {
 
 unresolved() { git diff --name-only --diff-filter=U | tr '\n' ' '; }
 
+# A file the incoming pull request deletes, where an earlier one edited it,
+# is a modify/delete conflict, which rerere does not record. The deletion is
+# the incoming pull request's stated intent, and edits to a file it removes are
+# moot, so it is taken. Only when every unresolved path is of that kind.
+take_deletions() {
+	local st
+	st=$(git status --porcelain | grep -E '^(DD|AU|UD|UA|DU|AA|UU) ')
+	[ -n "$st" ] || return 1
+	echo "$st" | grep -qvE '^UD ' && return 1
+	echo "$st" | cut -c4- | xargs git rm -q --
+}
+
 last_ms=""
 while IFS=$'\t' read -r n m mode head deps commits; do
 	[ -n "$last_ms" ] && [ "$m" != "$last_ms" ] && end_milestone "$last_ms"
@@ -76,6 +89,7 @@ while IFS=$'\t' read -r n m mode head deps commits; do
 	start=$(git rev-parse HEAD) files="" resolved=""
 	if [ "$mode" = merge ]; then
 		if ! git $RR merge -q --no-ff -m "experimental: merge #$n" "$head" >/dev/null 2>&1; then
+			take_deletions || true
 			files=$(unresolved)
 			if [ -z "$files" ]; then
 				resolved=1; git $RR commit -q --no-edit >/dev/null
@@ -86,6 +100,7 @@ while IFS=$'\t' read -r n m mode head deps commits; do
 	else
 		for c in $commits; do
 			git $RR cherry-pick --allow-empty --keep-redundant-commits "$c" >/dev/null 2>&1 && continue
+			take_deletions || true
 			files=$(unresolved)
 			if [ -z "$files" ]; then
 				resolved=1; git $RR cherry-pick --continue >/dev/null 2>&1 || git $RR commit -q --allow-empty --no-edit

@@ -1,6 +1,8 @@
 name: experimental lanes
 
-# After each lane run on an experimental/<milestone> branch:
+# Every 30 minutes, for the current commit of each experimental/<milestone>
+# branch. (Not on the lane runs' completion: they are started with the
+# workflow token, and GitHub starts no workflow from events that token causes.)
 #
 #   - a lane GitHub cancelled because no runner took it ("not acquired by
 #     Runner", macOS arm64 is short) is run again, once, when it is the only
@@ -13,12 +15,12 @@ name: experimental lanes
 #     comment on the status issue gives each lane's result, and mentions the
 #     maintainer when one failed or stayed cancelled.
 #
-# Runs from main only (workflow_run always does), and runs no pull-request code.
+# Runs from main (a schedule always does), and runs no pull-request code.
 
 on:
-  workflow_run:
-    workflows: ["Pipeline - Select and Run Lanes"]
-    types: [completed]
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -26,30 +28,25 @@ permissions:
   issues: write
 
 concurrency:
-  group: experimental-lanes-${{ github.event.workflow_run.head_sha }}
+  group: experimental-lanes
   cancel-in-progress: false
 
 jobs:
   lanes:
-    if: startsWith(github.event.workflow_run.head_branch, 'experimental/')
     runs-on: ubuntu-24.04
     steps:
+      - name: Keep the schedule alive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/experimental-lanes.yml/enable"
+
       - name: Rerun capacity cancels, or report the lanes
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          RUN: ${{ github.event.workflow_run.id }}
-          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
-          BRANCH: ${{ github.event.workflow_run.head_branch }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
           NOTIFY: bonomani
         run: |
           set -euo pipefail
-          now=$(gh api "repos/$REPO/git/ref/heads/$BRANCH" -q .object.sha 2>/dev/null || true)
-          if [ "$now" != "$SHA" ]; then
-            echo "$BRANCH has moved on from ${SHA:0:9}; nothing to do."; exit 0
-          fi
-
           # lane jobs of a run's latest attempt: id, conclusion, name
           lanes() {
             gh api --paginate "repos/$REPO/actions/runs/$1/jobs" \
@@ -60,56 +57,55 @@ jobs:
             gh api "repos/$REPO/check-runs/$1/annotations" -q '.[].message' 2>/dev/null \
               | grep -q "not acquired by Runner"
           }
-
-          lanes "$RUN" > this.tsv
-          if [ "$ATTEMPT" = 1 ]; then
-            cap=0 other=0
-            while IFS=$'\t' read -r id c name; do
-              case "$c" in
-                success|skipped) ;;
-                cancelled) if capacity "$id"; then cap=$((cap + 1)); else other=$((other + 1)); fi ;;
-                *) other=$((other + 1)) ;;
-              esac
-            done < this.tsv
-            if [ "$cap" -gt 0 ] && [ "$other" -eq 0 ]; then
-              gh api -X POST "repos/$REPO/actions/runs/$RUN/rerun-failed-jobs" > /dev/null
-              echo "rerun $cap lane(s) GitHub cancelled for want of a runner, in run $RUN" >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-          fi
-
-          # Report once every lane run for this commit has finished.
-          busy=$(gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml --commit "$SHA" -L 100 \
-                   --json status -q '[.[] | select(.status != "completed")] | length')
-          if [ "$busy" != 0 ]; then
-            echo "$busy lane run(s) for ${SHA:0:9} still going; the last to finish reports."; exit 0
-          fi
           title="Experimental build: current state"
           num=$(gh issue list -R "$REPO" --state open --search "in:title \"$title\"" --json number,title \
                   -q ".[] | select(.title == \"$title\") | .number" | head -1)
-          [ -n "$num" ] || { echo "no status issue"; exit 0; }
-          marker="<!-- lanes $SHA -->"
-          if gh issue view "$num" -R "$REPO" --json comments -q '.comments[].body' | grep -qF "$marker"; then
-            echo "already reported for ${SHA:0:9}"; exit 0
-          fi
-          : > all.tsv
-          for r in $(gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml --commit "$SHA" -L 100 \
-                       --json databaseId -q '.[].databaseId'); do
-            lanes "$r" >> all.tsv
-          done
-          sort -t$'\t' -k3,3 -u all.tsv > lanes.tsv
-          bad=$(awk -F'\t' '$2 != "success" && $2 != "skipped"' lanes.tsv | wc -l)
-          {
-            echo "$marker"
-            if [ "$bad" -gt 0 ]; then
-              echo "@$NOTIFY lanes on \`$BRANCH\` at \`${SHA:0:9}\`: $bad of $(wc -l < lanes.tsv) did not pass."
-            else
-              echo "Lanes on \`$BRANCH\` at \`${SHA:0:9}\`: all $(wc -l < lanes.tsv) passed."
+
+          gh api "repos/$REPO/branches" --paginate -q '.[] | select(.name | startswith("experimental/")) | "\(.name) \(.commit.sha)"' \
+          | while read -r BRANCH SHA; do
+            runs=$(gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml --commit "$SHA" -L 100 \
+                     --json databaseId,status,attempt -q '.[] | "\(.databaseId) \(.status) \(.attempt)"')
+            [ -n "$runs" ] || continue
+            busy=0
+            while read -r RUN status attempt; do
+              if [ "$status" != completed ]; then busy=1; continue; fi
+              [ "$attempt" = 1 ] || continue
+              cap=0 other=0
+              while IFS=$'\t' read -r id c name; do
+                case "$c" in
+                  success|skipped) ;;
+                  cancelled) if capacity "$id"; then cap=$((cap + 1)); else other=$((other + 1)); fi ;;
+                  *) other=$((other + 1)) ;;
+                esac
+              done < <(lanes "$RUN")
+              if [ "$cap" -gt 0 ] && [ "$other" -eq 0 ]; then
+                gh api -X POST "repos/$REPO/actions/runs/$RUN/rerun-failed-jobs" > /dev/null
+                echo "$BRANCH ${SHA:0:9}: reran $cap lane(s) GitHub cancelled for want of a runner (run $RUN)" >> "$GITHUB_STEP_SUMMARY"
+                busy=1
+              fi
+            done <<< "$runs"
+            [ "$busy" = 0 ] || continue
+            [ -n "$num" ] || continue
+            marker="<!-- lanes $SHA -->"
+            if gh issue view "$num" -R "$REPO" --json comments -q '.comments[].body' | grep -qF "$marker"; then
+              continue
             fi
-            echo
-            echo "| lane | result |"
-            echo "|---|---|"
-            awk -F'\t' '{ r = ($2 == "success") ? "passed" : $2; printf "| %s | %s |\n", $3, r }' lanes.tsv
-          } > comment.md
-          gh issue comment "$num" -R "$REPO" --body-file comment.md > /dev/null
-          echo "reported ${SHA:0:9}: $bad not passed" >> "$GITHUB_STEP_SUMMARY"
+            : > all.tsv
+            while read -r RUN status attempt; do lanes "$RUN" >> all.tsv; done <<< "$runs"
+            sort -t$'\t' -k3,3 -u all.tsv > lanes.tsv
+            bad=$(awk -F'\t' '$2 != "success" && $2 != "skipped"' lanes.tsv | wc -l)
+            {
+              echo "$marker"
+              if [ "$bad" -gt 0 ]; then
+                echo "@$NOTIFY lanes on \`$BRANCH\` at \`${SHA:0:9}\`: $bad of $(wc -l < lanes.tsv) did not pass."
+              else
+                echo "Lanes on \`$BRANCH\` at \`${SHA:0:9}\`: all $(wc -l < lanes.tsv) passed."
+              fi
+              echo
+              echo "| lane | result |"
+              echo "|---|---|"
+              awk -F'\t' '{ r = ($2 == "success") ? "passed" : $2; printf "| %s | %s |\n", $3, r }' lanes.tsv
+            } > comment.md
+            gh issue comment "$num" -R "$REPO" --body-file comment.md > /dev/null
+            echo "$BRANCH ${SHA:0:9}: reported, $bad not passed" >> "$GITHUB_STEP_SUMMARY"
+          done

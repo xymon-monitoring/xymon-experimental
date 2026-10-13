@@ -92,8 +92,10 @@ failure: delete it from `glue/`.
 
 ## Lanes
 
-When a lane run on an `experimental/<milestone>` branch finishes,
-`experimental lanes` looks at it. A lane GitHub cancelled because no runner
+Every 30 minutes, `experimental lanes` looks at the lane runs on each
+`experimental/<milestone>` branch's current commit. (Not when a lane run
+finishes: those runs are started with the workflow token, and GitHub starts no
+workflow from events that token causes.) A lane GitHub cancelled because no runner
 took it -- macOS arm64 runners are short -- is run again, once, when that is
 the only kind of miss in its run; a lane that failed is not, since running it
 until it passes would hide the intermittent problems the lanes exist to find.

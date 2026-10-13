@@ -26,12 +26,12 @@ jobs:
       left_out: ${{ steps.integrate.outputs.left_out }}
     steps:
       - name: Check out this repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: experimental
 
       - name: Check out the recorded resolutions
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: rerere-cache
           path: rerere
@@ -81,13 +81,15 @@ jobs:
           awk -F'\t' '($1=="pr" && ($3=="conflict"||$3=="skipped")){printf "#%s left out: %s %s\n", $2, $3, $4}
                        ($1=="glue" && $3=="failed"){printf "glue %s: %s\n", $2, $4}' ../report.tsv > ../left-out.txt
           while read -r line; do echo "::warning::$line"; done < ../left-out.txt
+          # An obsolete glue patch is not a failure: a notice, so it gets deleted.
+          awk -F'\t' '$1=="glue" && $3=="obsolete"{printf "::notice::glue %s is already in main; delete it from glue/\n", $2}' ../report.tsv
           echo "left_out=$(wc -l < ../left-out.txt)" >> "$GITHUB_OUTPUT"
           awk -F'\t' '$1=="milestone"{print $3, "refs/heads/experimental/" $2}' ../report.tsv > ../milestones.txt
           while read -r sha ref; do git update-ref "$ref" "$sha"; done < ../milestones.txt
           git bundle create ../experimental.bundle $(cut -d' ' -f2 ../milestones.txt)
 
       - name: Keep the result
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: experimental-${{ github.run_id }}
           path: |
@@ -104,7 +106,7 @@ jobs:
     environment: publish
     steps:
       - name: Fetch the result
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: experimental-${{ github.run_id }}
 
@@ -149,7 +151,7 @@ jobs:
       issues: write
     steps:
       - name: Fetch the result
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: experimental-${{ github.run_id }}
 

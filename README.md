@@ -84,4 +84,8 @@ The issue "Experimental build: current state" is rewritten by every run with
 the latest report, what is left out at the top. When what is left out
 changes, a comment there mentions the maintainer.
 
+A glue patch whose change is already in main -- the pull requests it joins
+have merged with it -- is reported as obsolete, a notice rather than a
+failure: delete it from `glue/`.
+
 Not done yet: a daily schedule.

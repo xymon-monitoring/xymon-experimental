@@ -13,6 +13,9 @@
 # of the first milestone by which every PR on its "Needs:" line is in the build
 # or already merged, so that each milestone branch carries the glue it needs.
 #
+# A glue patch whose change is already in the tree is reported obsolete, not
+# applied: the pull requests it joins have merged with it.
+#
 # report.tsv lines:  pr N result detail  |  glue NAME result detail  |
 #                    milestone M commit
 set -uo pipefail
@@ -35,7 +38,11 @@ apply_glue() {
 		done
 		[ -n "$missing" ] && { pending[$name]="needs$missing"; continue; }
 		glued[$name]=1; unset "pending[$name]"
-		if git apply --3way --index "$p" >/dev/null 2>&1; then
+		if git apply --reverse --check "$p" >/dev/null 2>&1; then
+			# Its change is already there: the pull requests it joins have
+			# merged, and one of them carried it. Nothing is wrong; it is done.
+			printf 'glue\t%s\tobsolete\talready in the tree; delete it\n' "$name" >> "$report"
+		elif git apply --3way --index "$p" >/dev/null 2>&1; then
 			git commit -q -m "experimental glue: $name
 
 $(sed -n '2,/^diff --git/p' "$p" | sed '$d')"

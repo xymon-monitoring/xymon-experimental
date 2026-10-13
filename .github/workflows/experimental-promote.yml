@@ -3,7 +3,8 @@ name: experimental promote
 # Moves experimental/<milestone> to candidate/<milestone> once the build and
 # tests workflows have both passed on it; a candidate that fails moves nothing,
 # so the branch keeps the last build that passed. When the newest milestone
-# moves, the lanes are started on it.
+# moves, the lanes are started on it, and those still running for an earlier
+# commit are cancelled.
 #
 # Runs from main only (workflow_run always does), and runs no pull-request
 # code: it reads run results and pushes a commit already tested.
@@ -69,6 +70,13 @@ jobs:
 
           newest=$(gh api "repos/$REPO/branches" --paginate -q '.[].name' | sed -n 's|^candidate/||p' | sort -V | tail -1)
           if [ "$m" = "$newest" ]; then
+            # Lanes still running for an earlier commit test code that is gone,
+            # and their macOS jobs hold the few macOS runners the organisation
+            # gets at once: cancel them before starting the new ones.
+            gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml -L 100 \
+              --json databaseId,status,headSha \
+              -q ".[] | select(.status != \"completed\" and .headSha != \"$SHA\") | .databaseId" \
+              | while read -r old; do gh run cancel "$old" -R "$REPO" || true; done
             for f in alpine archlinux centos7 debian amazonlinux freebsd netbsd openbsd opensuse rockylinux almalinux fedora oraclelinux ubuntu; do
               gh workflow run pipeline-select-run-lanes.yml -R "$REPO" --ref "experimental/$m" \
                 -f family="$f" -f arch=amd64 -f variant=server -f verify_depth=test

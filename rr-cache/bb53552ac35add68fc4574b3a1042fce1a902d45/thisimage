@@ -1046,11 +1046,22 @@ static void warn_unreachable_hostnames(void)
 	for (hrec = first_host(); hrec; hrec = next_host(hrec, 0)) {
 		char *name = xmh_item(hrec, XMH_HOSTNAME);
 
-		/* A literal comma is web-unreachable even though XYMON_HOSTNAME_CHARS
-		 * lists it (the CGIs need it for the 192,168,1,1 IP spelling): every
-		 * generated URL runs the name through uncommafy(), so a configured
-		 * "foo,bar" resolves to "foo.bar" -- a different host. */
-		if (name && (!hostname_web_safe(name) || strchr(name, ',')))
+		if (!name) continue;
+
+		/* A literal comma is not monitored at all, although
+		 * XYMON_HOSTNAME_CHARS lists it (the CGIs need it for the 192,168,1,1
+		 * IP spelling): get_hts() runs the hostname of every status message
+		 * through uncommafy(), so the results for a configured "foo,bar" arrive
+		 * as "foo.bar" and never match this entry. Say so, rather than the
+		 * "it is monitored" of the message below. */
+		if (strchr(name, ',')) {
+			char *arrives = strdup(name);
+
+			uncommafy(arrives);
+			errprintf("Warning: hostname '%s' in hosts.cfg contains a comma; xymond turns it into a period on every status message, so its results arrive as '%s' and the host is not monitored. Remove the comma from the canonical name.\n", name, arrives);
+			xfree(arrives);
+		}
+		else if (!hostname_web_safe(name))
 			errprintf("Warning: hostname '%s' in hosts.cfg has characters the web interface cannot serve; it is monitored but its web pages are not reachable. Use an ASCII canonical name and a NAME: tag for the displayed spelling.\n", name);
 	}
 }
@@ -2584,22 +2595,58 @@ void handle_ackinfo(char *msg, char *sender, xymond_log_t *log)
 
 void handle_notify(char *msg, char *sender, char *hostname, char *testname)
 {
-	char *msgtext, *channelmsg;
+	char *msgtext, *pagepath;
+	strbuffer_t *channelmsg;
 	void *hi;
 
 	dbgprintf("-> handle_notify\n");
 
 	hi = hostinfo(hostname);
-
 	msgtext = msg_data(msg, 0);
-	channelmsg = (char *)malloc(1024 + strlen(msgtext));
+
+	/*
+	 * The buffer was a fixed 1024 bytes of slack over the message text, with
+	 * the hostname, the testname and the pagepath list written into it as
+	 * well. None of those is bounded, and the list least of all - it carries
+	 * a path for every page the host is on - so a host on enough pages wrote
+	 * past the allocation.
+	 *
+	 * Build it in a strbuffer instead. Adding up the fields and counting the
+	 * separators in a format string by hand is the step that was wrong, and a
+	 * corrected hand-count is still a hand-count; this has no count to get
+	 * wrong.
+	 *
+	 * The empty-string fallbacks are not defensive padding: addtobuffer_many()
+	 * stops at its first NULL argument, so one NULL field does not leave a
+	 * gap, it truncates the message there. The pagepath is the one to watch -
+	 * guarding only the hostinfo lookup would let a NULL from xmh_item() take
+	 * the newline and the whole alert text with it - and posttochannel() and
+	 * handle_data() guard that same return the same way.
+	 */
+	channelmsg = newstrbuffer(0);
+	if (channelmsg == NULL) {
+		/* newstrbuffer() has logged the failure. */
+		dbgprintf("<- handle_notify (allocation failed)\n");
+		return;
+	}
+
+	/*
+	 * Read the pagepath here rather than earlier: it points into a static
+	 * strbuffer inside xmh_item(), so the less far that pointer is carried,
+	 * the less there is to go wrong if a call is ever inserted above it.
+	 */
+	pagepath = (hi ? xmh_item(hi, XMH_ALLPAGEPATHS) : NULL);
+
+	addtobuffer_many(channelmsg,
+		(hostname ? hostname : ""), "|",
+		(testname ? testname : ""), "|",
+		(pagepath ? pagepath : ""), "\n",
+		(msgtext ? msgtext : ""), NULL);
 
 	/* Tell the pagers */
-	sprintf(channelmsg, "%s|%s|%s\n%s", 
-		hostname, (testname ? testname : ""), (hi ? xmh_item(hi, XMH_ALLPAGEPATHS) : ""), msgtext);
-	posttochannel(pagechn, "notify", msg, sender, hostname, NULL, channelmsg);
+	posttochannel(pagechn, "notify", msg, sender, hostname, NULL, STRBUF(channelmsg));
 
-	xfree(channelmsg);
+	freestrbuffer(channelmsg);
 
 	dbgprintf("<- handle_notify\n");
 	return;
@@ -5933,6 +5980,26 @@ static int add_listener(struct sockaddr_storage *addr, int listenq)
 	return 0;
 }
 
+/*
+ * Release every channel this process has set up as master. A channel not set
+ * up yet is still NULL, and close_channel() returns on NULL, so this is also
+ * what a startup that failed partway uses: without it, the channels set up
+ * before the failure keep their shared memory and semaphore sets until ipcrm
+ * or a reboot, and on a host with few semaphore sets the next start fails too.
+ */
+static void close_channels(void)
+{
+	close_channel(statuschn, CHAN_MASTER);
+	close_channel(stachgchn, CHAN_MASTER);
+	close_channel(pagechn, CHAN_MASTER);
+	close_channel(datachn, CHAN_MASTER);
+	close_channel(noteschn, CHAN_MASTER);
+	close_channel(enadischn, CHAN_MASTER);
+	close_channel(clientchn, CHAN_MASTER);
+	close_channel(clichgchn, CHAN_MASTER);
+	close_channel(userchn, CHAN_MASTER);
+}
+
 int main(int argc, char *argv[])
 {
 	conn_t *connhead = NULL, *conntail=NULL;
@@ -6311,15 +6378,19 @@ int main(int argc, char *argv[])
 	}
 
 	if (pidfile == NULL) {
-		/* Setup a default pid-file */
+		/* Setup a default pid-file: in the runtime directory, where the
+		   shipped tasks.cfg puts it and where xymon.sh looks for it.
+		   Bounded, XYMONRUNDIR being configured. */
 		char fn[PATH_MAX];
 
-		sprintf(fn, "%s/xymond.pid", xgetenv("XYMONSERVERLOGS"));
-		pidfile = strdup(fn);
+		if (snprintf(fn, sizeof(fn), "%s/xymond.pid", xymon_rundir()) >= (int)sizeof(fn)) {
+			errprintf("Default pidfile path does not fit under XYMONRUNDIR, no pidfile written\n");
+		}
+		else pidfile = strdup(fn);
 	}
 
-	/* Save PID */
-	{
+	/* Save PID, unless the default path did not fit (pidfile is NULL). */
+	if (pidfile) {
 		FILE *fd = fopen(pidfile, "w");
 		if (fd) {
 			if (fprintf(fd, "%lu\n", (unsigned long)getpid()) <= 0) {
@@ -6345,26 +6416,26 @@ int main(int argc, char *argv[])
 
 	errprintf("Setting up xymond channels\n");
 	statuschn = setup_channel(C_STATUS, CHAN_MASTER);
-	if (statuschn == NULL) { errprintf("Cannot setup status channel\n"); return 1; }
+	if (statuschn == NULL) { errprintf("Cannot setup status channel\n"); close_channels(); return 1; }
 	stachgchn = setup_channel(C_STACHG, CHAN_MASTER);
-	if (stachgchn == NULL) { errprintf("Cannot setup stachg channel\n"); return 1; }
+	if (stachgchn == NULL) { errprintf("Cannot setup stachg channel\n"); close_channels(); return 1; }
 	pagechn   = setup_channel(C_PAGE, CHAN_MASTER);
-	if (pagechn == NULL) { errprintf("Cannot setup page channel\n"); return 1; }
+	if (pagechn == NULL) { errprintf("Cannot setup page channel\n"); close_channels(); return 1; }
 	datachn   = setup_channel(C_DATA, CHAN_MASTER);
-	if (datachn == NULL) { errprintf("Cannot setup data channel\n"); return 1; }
+	if (datachn == NULL) { errprintf("Cannot setup data channel\n"); close_channels(); return 1; }
 	noteschn  = setup_channel(C_NOTES, CHAN_MASTER);
-	if (noteschn == NULL) { errprintf("Cannot setup notes channel\n"); return 1; }
+	if (noteschn == NULL) { errprintf("Cannot setup notes channel\n"); close_channels(); return 1; }
 	enadischn  = setup_channel(C_ENADIS, CHAN_MASTER);
-	if (enadischn == NULL) { errprintf("Cannot setup enadis channel\n"); return 1; }
+	if (enadischn == NULL) { errprintf("Cannot setup enadis channel\n"); close_channels(); return 1; }
 	clientchn  = setup_channel(C_CLIENT, CHAN_MASTER);
-	if (clientchn == NULL) { errprintf("Cannot setup client channel\n"); return 1; }
+	if (clientchn == NULL) { errprintf("Cannot setup client channel\n"); close_channels(); return 1; }
 	clichgchn  = setup_channel(C_CLICHG, CHAN_MASTER);
-	if (clichgchn == NULL) { errprintf("Cannot setup clichg channel\n"); return 1; }
+	if (clichgchn == NULL) { errprintf("Cannot setup clichg channel\n"); close_channels(); return 1; }
 	userchn  = setup_channel(C_USER, CHAN_MASTER);
-	if (userchn == NULL) { errprintf("Cannot setup user channel\n"); return 1; }
+	if (userchn == NULL) { errprintf("Cannot setup user channel\n"); close_channels(); return 1; }
 	if (create_backfeedqueue) {
 		backfeedqueue  = setup_feedback_queue(CHAN_MASTER);
-		if (backfeedqueue == -1) { errprintf("Cannot setup backfeed-client channel\n"); return 1; }
+		if (backfeedqueue == -1) { errprintf("Cannot setup backfeed-client channel\n"); close_channels(); return 1; }
 		bf_bufsz = 1024*shbufsz(C_FEEDBACK_QUEUE);
 		bf_buf = (char *)malloc(bf_bufsz);
 	}
@@ -6372,6 +6443,14 @@ int main(int argc, char *argv[])
 	errprintf("Setting up logfiles\n");
 	setvbuf(stdout, NULL, _IONBF, 0);
 	setvbuf(stderr, NULL, _IONBF, 0);
+
+	if (!logfn && getenv("XYMONLAUNCH_LOGFILENAME")) {
+		/* No log file on the command line, but our STDOUT is already */
+		/* being piped somewhere. Record this for when it's time to re-open on rotation */
+		logfn = xgetenv("XYMONLAUNCH_LOGFILENAME");
+		dbgprintf("xymond: Already logging out to %s, per xymonlaunch\n", logfn);
+	}
+
 	reopen_file("/dev/null", "r", stdin);
 	if (logfn) {
 		reopen_file(logfn, "a", stdout);
@@ -6588,15 +6667,58 @@ int main(int argc, char *argv[])
 			switch (cwalk->doingwhat) {
 			  case RECEIVING:
 				if (FD_ISSET(cwalk->sock, &fdread)) {
-					if ((n == -1) && (errno == EAGAIN)) break; /* Do nothing */
-
 					n = read(cwalk->sock, cwalk->bufp, (cwalk->bufsz - cwalk->buflen - 1));
-					if (n <= 0) {
-						/* End of input data on this connection */
+
+					/*
+					 * Tested AFTER the read, as the RESPONDING arm below
+					 * tests its write. "n" is reused by every connection
+					 * in this loop, so checking it beforehand asked
+					 * whether the PREVIOUS one would have blocked, and
+					 * skipped a readable connection when it had.
+					 */
+					if ((n == -1) && ((errno == EAGAIN) || (errno == EWOULDBLOCK) ||
+							  (errno == EINTR))) break; /* Do nothing */
+
+					if (n < 0) {
+						/*
+						 * The connection broke while the message was
+						 * still arriving. A request is delimited by the
+						 * sender stopping, so what is in the buffer
+						 * cannot be told apart from a whole message by
+						 * looking at it -- and acting on it means acting
+						 * on half a status: a colour taken from a line
+						 * that was cut in the middle. Drop it, and say
+						 * so, which is the part that was missing before.
+						 */
+						errprintf("Truncated message from %s - %d bytes before the connection broke: %s\n",
+							  inet_ntoa(cwalk->addr.sin_addr), cwalk->buflen,
+							  strerror(errno));
+						shutdown(cwalk->sock, SHUT_RDWR);
+						close(cwalk->sock);
+						cwalk->sock = -1;
+						cwalk->doingwhat = NOTALK;
+					}
+					else if (n == 0) {
+						/* The sender finished: the message is what arrived. */
 						*(cwalk->bufp) = '\0';
 
-						/* FIXME - need to set origin here */
-						do_message(cwalk, "");
+						if (cwalk->buflen == 0) {
+							/*
+							 * Connected and said nothing. Every port
+							 * scan does this, and so does a
+							 * connect-only check on this port, so it
+							 * is not worth a log line -- but it is not
+							 * a message either.
+							 */
+							shutdown(cwalk->sock, SHUT_RDWR);
+							close(cwalk->sock);
+							cwalk->sock = -1;
+							cwalk->doingwhat = NOTALK;
+						}
+						else {
+							/* FIXME - need to set origin here */
+							do_message(cwalk, "");
+						}
 					}
 					else {
 						/* Add data to the input buffer - within reason ... */
@@ -6804,21 +6926,14 @@ int main(int argc, char *argv[])
 	running = 0;
 
 	/* Close the channels */
-	close_channel(statuschn, CHAN_MASTER);
-	close_channel(stachgchn, CHAN_MASTER);
-	close_channel(pagechn, CHAN_MASTER);
-	close_channel(datachn, CHAN_MASTER);
-	close_channel(noteschn, CHAN_MASTER);
-	close_channel(enadischn, CHAN_MASTER);
-	close_channel(clientchn, CHAN_MASTER);
-	close_channel(clichgchn, CHAN_MASTER);
-	close_channel(userchn, CHAN_MASTER);
+	close_channels();
 
 	if (backfeedqueue >= 0) close_feedback_queue(backfeedqueue, CHAN_MASTER);
 	if (bf_buf) xfree(bf_buf);
 
 	save_checkpoint();
-	unlink(pidfile);
+	/* pidfile is NULL when the default path did not fit. */
+	if (pidfile) unlink(pidfile);
 
 	if (dbgfd) fclose(dbgfd);
 

@@ -22,6 +22,8 @@ concurrency:
 jobs:
   integrate:
     runs-on: ubuntu-24.04
+    outputs:
+      left_out: ${{ steps.integrate.outputs.left_out }}
     steps:
       - name: Check out this repository
         uses: actions/checkout@v4
@@ -50,6 +52,7 @@ jobs:
           git rev-parse origin/main > ../base.sha
 
       - name: Integrate
+        id: integrate
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -70,6 +73,11 @@ jobs:
           bash ../experimental/scripts/integrate.sh ../plan.tsv ../experimental/glue ../merged.txt
           bash ../experimental/scripts/report.sh ../plan.tsv ../report.tsv "$(cat ../base.sha)" "$(cat ../overlay.sha)" > ../EXPERIMENTAL.md
           cat ../EXPERIMENTAL.md >> "$GITHUB_STEP_SUMMARY"
+          # One warning per pull request or glue patch left out, on the run's page.
+          awk -F'\t' '($1=="pr" && ($3=="conflict"||$3=="skipped")){printf "#%s left out: %s %s\n", $2, $3, $4}
+                       ($1=="glue" && $3=="failed"){printf "glue %s: %s\n", $2, $4}' ../report.tsv > ../left-out.txt
+          while read -r line; do echo "::warning::$line"; done < ../left-out.txt
+          echo "left_out=$(wc -l < ../left-out.txt)" >> "$GITHUB_OUTPUT"
           awk -F'\t' '$1=="milestone"{print $3, "refs/heads/experimental/" $2}' ../report.tsv > ../milestones.txt
           while read -r sha ref; do git update-ref "$ref" "$sha"; done < ../milestones.txt
           git bundle create ../experimental.bundle $(cut -d' ' -f2 ../milestones.txt)
@@ -82,6 +90,7 @@ jobs:
             EXPERIMENTAL.md
             plan.tsv
             report.tsv
+            left-out.txt
             overlay.sha
             experimental.bundle
 
@@ -122,3 +131,73 @@ jobs:
             refs="$refs +refs/c/$m:refs/heads/candidate/$m"
           done
           git push -q git@github.com:${{ github.repository }}.git $refs
+
+  # The report, as one issue rewritten by every run; a comment mentions the
+  # maintainer when what is left out changes. Then the run fails if anything
+  # was left out, so the run list shows it and GitHub emails whoever last
+  # edited the schedule. The branches are published either way.
+  report:
+    needs: [integrate, publish]
+    if: always() && needs.integrate.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - name: Fetch the result
+        uses: actions/download-artifact@v4
+        with:
+          name: experimental-${{ github.run_id }}
+
+      - name: Rewrite the status issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NOTIFY: bonomani
+        run: |
+          set -euo pipefail
+          title="Experimental build: current state"
+          num=$(gh issue list -R "$REPO" --state open --search "in:title \"$title\"" --json number,title \
+                  -q ".[] | select(.title == \"$title\") | .number" | head -1)
+          old=""
+          if [ -n "$num" ]; then
+            old=$(gh issue view "$num" -R "$REPO" --json body -q .body \
+                    | sed -n '/^<!-- left-out$/,/^-->$/p' | sed '1d;$d')
+          fi
+          new=$(sort left-out.txt)
+          {
+            echo "Rewritten by each run of the experimental build; the latest is [this run]($RUN_URL)."
+            echo
+            if [ -s left-out.txt ]; then
+              echo "**Left out of this build:**"
+              echo
+              sed 's/^/- /' left-out.txt
+            else
+              echo "**Nothing left out.**"
+            fi
+            echo
+            cat EXPERIMENTAL.md
+            echo
+            echo "<!-- left-out"
+            printf '%s\n' "$new"
+            echo "-->"
+          } > body.md
+          if [ -z "$num" ]; then
+            num=$(gh issue create -R "$REPO" --title "$title" --body-file body.md | sed 's|.*/||')
+          else
+            gh issue edit "$num" -R "$REPO" --body-file body.md > /dev/null
+          fi
+          if [ "$new" != "$old" ]; then
+            {
+              echo "@$NOTIFY what this build leaves out has changed ([run]($RUN_URL))."
+              echo
+              if [ -s left-out.txt ]; then sed 's/^/- /' left-out.txt; else echo "Nothing is left out now."; fi
+            } > comment.md
+            gh issue comment "$num" -R "$REPO" --body-file comment.md > /dev/null
+          fi
+
+      - name: Fail the run if anything was left out
+        if: needs.integrate.outputs.left_out != '0'
+        run: |
+          echo "::error::${{ needs.integrate.outputs.left_out }} pull request(s) or glue patch(es) left out; see the warnings above and the status issue."
+          exit 1

@@ -73,4 +73,15 @@ Pushing needs a deploy key with write access, kept as the secret
 running from `main` can use. A workflow token cannot push commits that touch
 `.github/workflows`, and every Xymon branch does.
 
+## When something is left out
+
+Each left-out pull request, and each glue patch that no longer applies, is a
+warning on the run's page, and the run fails once the branches are published:
+a red run in the list, and GitHub's failure email to whoever last edited the
+schedule.
+
+The issue "Experimental build: current state" is rewritten by every run with
+the latest report, what is left out at the top. When what is left out
+changes, a comment there mentions the maintainer.
+
 Not done yet: a daily schedule.

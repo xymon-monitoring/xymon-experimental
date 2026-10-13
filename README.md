@@ -90,4 +90,17 @@ A glue patch whose change is already in main -- the pull requests it joins
 have merged with it -- is reported as obsolete, a notice rather than a
 failure: delete it from `glue/`.
 
-Not done yet: a daily schedule.
+## When it runs
+
+Every day at 03:17 UTC, and on demand. A scheduled run first hashes what the
+build depends on -- the eligible pull requests (number, head, milestone,
+base, `Depends-on:` lines), `main`, `cmake/bootstrap`, this repository and
+`rerere-cache` -- and stops within seconds when the hash matches the last
+build that published. A manual run always builds, unless `if_changed` is set.
+
+GitHub pauses a scheduled workflow after 60 days without a commit to the
+repository, and this one only gets commits when its scripts or glue change.
+Each run therefore calls GitHub's "enable workflow" for itself, which resets
+that count, as keepalive actions do instead of committing. Should GitHub
+still pause it, it says so by notification, and the workflow's page has a
+button to enable it again.

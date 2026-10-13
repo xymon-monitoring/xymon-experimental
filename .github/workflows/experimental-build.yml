@@ -11,6 +11,13 @@ name: experimental build
 
 on:
   workflow_dispatch:
+    inputs:
+      if_changed:
+        description: Build only if the inputs changed since the last build that published, as the schedule does
+        type: boolean
+        default: false
+  schedule:
+    - cron: '17 3 * * *'
 
 permissions:
   contents: read
@@ -20,7 +27,72 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # What the build depends on, as one hash: the eligible pull requests (number,
+  # head, milestone, base, Depends-on lines), main, the CI overlay, this
+  # repository and the recorded resolutions. A scheduled run whose hash matches
+  # the last build that published stops here; a manual run builds unless
+# asked to do the same.
+  #
+  # It also calls GitHub's "enable workflow" for this workflow, which resets
+  # the 60 days without a commit after which GitHub pauses a schedule: this
+  # repository only gets commits when its scripts or glue change.
+  check:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: write
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+      key: ${{ steps.fingerprint.outputs.key }}
+    steps:
+      - name: Keep the schedule alive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/experimental-build.yml/enable"
+
+      - name: Fingerprint the inputs
+        id: fingerprint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          {
+            gh pr list -R xymon-monitoring/xymon --state open -L 500 \
+              --json number,isDraft,baseRefName,headRefName,milestone,headRefOid,body \
+              -q '[.[] | select((.isDraft|not) and .milestone != null)
+                   | [.number, .headRefOid, .milestone.title, .baseRefName, .headRefName,
+                      ([.body // "" | scan("(?m)^Depends-on: *#[0-9]+")] | join(","))]]
+                  | sort_by(.[0]) | .[] | @tsv'
+            git ls-remote https://github.com/xymon-monitoring/xymon refs/heads/main
+            git ls-remote https://github.com/bonomani/xymon refs/heads/cmake/bootstrap
+            git ls-remote "https://github.com/${{ github.repository }}" refs/heads/rerere-cache
+            echo "${{ github.sha }}"
+          } > inputs.txt
+          echo "key=experimental-inputs-$(sha256sum inputs.txt | cut -c1-32)" >> "$GITHUB_OUTPUT"
+          echo "$(wc -l < inputs.txt) lines fingerprinted"
+
+      - name: Look for a build of the same inputs
+        id: seen
+        uses: actions/cache/restore@v6
+        with:
+          path: inputs.txt
+          key: ${{ steps.fingerprint.outputs.key }}
+          lookup-only: true
+
+      - name: Decide
+        id: decide
+        run: |
+          if { [ "${{ github.event_name }}" = schedule ] || [ "${{ inputs.if_changed }}" = true ]; } \
+             && [ "${{ steps.seen.outputs.cache-hit }}" = true ]; then
+            echo "Nothing changed since the last build that published; nothing to do." >> "$GITHUB_STEP_SUMMARY"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
   integrate:
+    needs: check
+    if: needs.check.outputs.build == 'true'
     runs-on: ubuntu-24.04
     outputs:
       left_out: ${{ steps.integrate.outputs.left_out }}
@@ -101,7 +173,7 @@ jobs:
             experimental.bundle
 
   publish:
-    needs: integrate
+    needs: [check, integrate]
     runs-on: ubuntu-24.04
     environment: publish
     steps:
@@ -138,6 +210,15 @@ jobs:
             refs="$refs +refs/c/$m:refs/heads/candidate/$m"
           done
           git push -q git@github.com:${{ github.repository }}.git $refs
+
+      - name: Remember these inputs as built
+        run: echo "${{ needs.check.outputs.key }}" > inputs.txt
+
+      - name: Store the fingerprint
+        uses: actions/cache/save@v6
+        with:
+          path: inputs.txt
+          key: ${{ needs.check.outputs.key }}
 
   # The report, as one issue rewritten by every run; a comment mentions the
   # maintainer when what is left out changes. Then the run fails if anything

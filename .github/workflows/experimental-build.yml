@@ -59,7 +59,7 @@ jobs:
           git checkout -q --detach origin/main
           bash ../experimental/scripts/select.sh ../prs.json origin/main > ../plan.tsv
           # A glue patch's Needs is met by a pull request merged upstream.
-          sed -n '1s/^Needs://p' ../experimental/glue/*.patch | tr ' ' '\n' | tr -d '#' | sort -u \
+          head -qn1 ../experimental/glue/*.patch | sed 's/^Needs://' | tr ' ' '\n' | tr -d '#' | sort -u \
             | while read -r n; do
                 [ -n "$n" ] || continue
                 if [ "$(gh pr view "$n" -R xymon-monitoring/xymon --json state -q .state)" = MERGED ]; then echo "$n"; fi

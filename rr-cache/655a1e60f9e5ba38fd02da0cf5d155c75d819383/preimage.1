@@ -1,0 +1,364 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# Both workflows check out and run pull-request code; the token needs
+# nothing beyond reading the repo. Same grant as tests.yml.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    # In this repository a pull request already builds its branch, so a push
+    # builds only main, release branches and tags; a fork builds every branch it
+    # pushes, for a contributor testing before opening a pull request.
+    if: >-
+      github.event_name != 'push' ||
+      github.repository != 'xymon-monitoring/xymon' ||
+      github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/heads/release/') ||
+      startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    # A regression test that blocks (e.g. a configure probe growing an
+    # interactive prompt) would otherwise hang the job for the runner's
+    # 6-hour ceiling. Build + suite take ~1 minute; 15 is generous.
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # testvariant: the suite's name for what the two configure axes
+          # produce -- --client + CONFTYPE=client writes LOCALCLIENT=yes, the
+          # localclient build. The runner checks the label against the tree.
+          - name: server
+            variant: server
+            testvariant: server
+
+          - name: client, CT=client
+            variant: client
+            conftype: client
+            testvariant: localclient
+
+          - name: client CT=server
+            variant: client
+            conftype: server
+            testvariant: client
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            libc-ares-dev \
+            libldap-dev \
+            libpcre2-dev \
+            librrd-dev \
+            libssl-dev \
+            libtirpc-dev
+
+      - name: Configure (${{ matrix.name }})
+        env:
+          CONFTYPE: ${{ matrix.conftype }}
+        run: |
+          USEXYMONPING=y \
+          ENABLESSL=y \
+          ENABLELDAP=y \
+          ENABLELDAPSSL=y \
+          XYMONUSER=xymon \
+          XYMONTOPDIR=/usr/lib/xymon \
+          XYMONVAR=/var/lib/xymon \
+          XYMONHOSTURL=/xymon \
+          CGIDIR=/usr/lib/xymon/cgi-bin \
+          XYMONCGIURL=/xymon-cgi \
+          SECURECGIDIR=/usr/lib/xymon/cgi-secure \
+          SECUREXYMONCGIURL=/xymon-seccgi \
+          HTTPDGID=www-data \
+          XYMONLOGDIR=/var/log/xymon \
+          XYMONHOSTNAME=localhost \
+          XYMONHOSTIP=127.0.0.1 \
+          MANROOT=/usr/share/man \
+          INSTALLBINDIR=/usr/lib/xymon/server/bin \
+          INSTALLETCDIR=/etc/xymon \
+          INSTALLWEBDIR=/etc/xymon/web \
+          INSTALLEXTDIR=/usr/lib/xymon/server/ext \
+          INSTALLTMPDIR=/var/lib/xymon/tmp \
+          INSTALLWWWDIR=/var/lib/xymon/www \
+          ./configure --${{ matrix.variant }}
+
+      - name: Build
+        run: |
+<<<<<<<
+          # FIXME: building in parallel causes issues
+          # see https://github.com/xymon-monitoring/xymon/issues/3
+          make -j1
+  build-bsd-server:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: False
+      matrix:
+        os:
+          - name: freebsd
+            architecture: x86-64
+            version: '15.0'
+
+          - name: openbsd
+            architecture: x86-64
+            version: '7.8'
+
+          - name: netbsd
+            architecture: x86-64
+            version: '10.1'
+    name: build on BSD for server
+    steps:
+      - uses: actions/checkout@v3
+      - name: test ${{ matrix.os.name }}
+        uses: cross-platform-actions/action@v0.32.0
+        with:
+          operating_system: ${{ matrix.os.name }}
+          architecture: ${{ matrix.os.architecture }}
+          version: ${{ matrix.os.version }}
+          shell: bash
+          memory: 512M
+          cpu_count: 1
+          run: |
+            uname -a
+            sh .github/workflows/install-deps.sh
+            USEXYMONPING=y \
+            ENABLESSL=y \
+            ENABLELDAP=y \
+            ENABLELDAPSSL=y \
+            XYMONUSER=xymon \
+            XYMONTOPDIR=/usr/lib/xymon \
+            XYMONVAR=/var/lib/xymon \
+            XYMONHOSTURL=/xymon \
+            CGIDIR=/usr/lib/xymon/cgi-bin \
+            XYMONCGIURL=/xymon-cgi \
+            SECURECGIDIR=/usr/lib/xymon/cgi-secure \
+            SECUREXYMONCGIURL=/xymon-seccgi \
+            HTTPDGID=www-data \
+            XYMONLOGDIR=/var/log/xymon \
+            XYMONHOSTIP=127.0.0.1 \
+            MANROOT=/usr/share/man \
+            INSTALLBINDIR=/usr/lib/xymon/server/bin \
+            INSTALLETCDIR=/etc/xymon \
+            INSTALLWEBDIR=/etc/xymon/web \
+            INSTALLEXTDIR=/usr/lib/xymon/server/ext \
+            INSTALLTMPDIR=/var/lib/xymon/tmp \
+            INSTALLWWWDIR=/var/lib/xymon/www \
+            XYMONHOSTNAME=$(hostname) \
+            HTTPDGID=apache \
+            SYSTEMCARES=yes MAKE=gmake ./configure --server
+            grep CARES Makefile
+            gmake
+            ls -l
+  build-bsd-client:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: False
+      matrix:
+        os:
+          - name: freebsd
+            architecture: x86-64
+            version: '15.0'
+
+          - name: openbsd
+            architecture: x86-64
+            version: '7.8'
+
+          - name: netbsd
+            architecture: x86-64
+            version: '10.1'
+    name: build on BSD for client
+    steps:
+      - uses: actions/checkout@v3
+      - name: test ${{ matrix.os.name }}
+        uses: cross-platform-actions/action@v0.32.0
+        with:
+          operating_system: ${{ matrix.os.name }}
+          architecture: ${{ matrix.os.architecture }}
+          version: ${{ matrix.os.version }}
+          shell: bash
+          memory: 512M
+          cpu_count: 1
+          environment_variables: "http_proxy https_proxy"
+          run: |
+            uname -a
+            sh .github/workflows/install-deps.sh
+            XYMONTOPDIR=/usr/local/xymon \
+            XYMONHOSTURL=/xymon \
+            CGIDIR=/usr/local/xymon/cgi-bin \
+            XYMONCGIURL=/xymon-cgi \
+            SECURECGIDIR=/usr/local/xymon/cgi-secure \
+            SECUREXYMONCGIURL=/xymon-seccgi \
+            XYMONHOSTNAME=$(hostname) \
+            XYMONLOGDIR=/var/log/xymon \
+            HTTPDGID=apache \
+            XYMONHOSTIP=127.0.0.1 \
+            MANROOT=/usr/local/man \
+            USEXYMONPING=n \
+            ENABLESSL=n \
+            ENABLELDAP=n \
+            XYMONUSER=xymon \
+            SYSTEMCARES=yes \
+            MAKE=gmake \
+            ./configure --client
+            echo "Running gmake""
+            gmake
+            echo "Running gmake end"
+            ls -l
+            [[ -x client/openbsd-meminfo ]] && ./client/openbsd-meminfo
+            [[ -x client/netbsd-meminfo ]] && ./client/netbsd-meminfo
+            [[ -x client/freebsd-meminfo ]] && ./client/freebsd-meminfo
+  build-docker:
+    strategy:
+      fail-fast: False
+      matrix:
+        os:
+          - name: bullseye
+          - name: bookworm
+          - name: trixie
+          - name: rockylinux10
+          - name: fedora
+    runs-on: ubuntu-latest
+    name: build on ${{ matrix.os.name }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build docker
+        run: |
+          pwd
+          ls -l
+          cd docker
+          docker compose build ${{ matrix.os.name }}
+          docker compose up --abort-on-container-exit ${{ matrix.os.name }}
+=======
+          echo "running make with $(nproc) parallel processes"
+          make -j$(nproc)
+
+      # tests.yml runs the same suite without building, so any test that needs
+      # a compiled binary (require_bin in tests/lib/assert.sh) silently skips
+      # there. Run it here too, where the binaries this variant produced are on
+      # disk, so those tests actually execute against the build.
+      #
+      # First such test: tests/common/xymongrep-filter.sh, which drives the
+      # xymongrep this leg just built, resolved per variant by the products
+      # table in tests/lib/assert.sh. This step is the only place in CI where
+      # it executes instead of skipping.
+      #
+      # Every leg, not just the server one: each leg names the build it made
+      # (testvariant), the runner checks that label against the configured
+      # tree and leaves out the areas that build has none of. A client leg
+      # verifies the client it just built -- which no leg did while gated.
+      - name: Run regression tests against the build
+        env:
+          XYMON_VARIANT: ${{ matrix.testvariant }}
+          # Dependencies installed and the full variant built: a skip in a
+          # provided area is a hole, so hold the run to the coverage floor.
+          XYMON_TESTS_STRICT: 1
+        run: |
+          # Mirror tests.yml: this step builds this leg's variant, so every
+          # test the filter keeps finds the binaries it drives (unbuilt areas
+          # are filtered, not skipped). The runner's all-skip exit 77
+          # ("nothing verified") can therefore only mean broken discovery, not a
+          # legitimate skip -- map it to a hard failure. Actions has no neutral
+          # state, so 77 would otherwise surface as a bare nonzero failure with
+          # no explanation. `|| rc=$?` exempts the runner from bash -e so the
+          # mapping is reachable.
+          rc=0
+          ./tests/testsuite || rc=$?
+          if [ "$rc" = 77 ]; then
+            echo "::error::testsuite skipped everything (rc=77) -- with full source built this means broken discovery, not a legitimate skip"
+            exit 1
+          fi
+          exit "$rc"
+
+  # The 69 HTML manual pages under docs/manpages/ are generated from the roff
+  # sources and committed alongside them, and nothing ever checked that the two
+  # agree. They drifted for seven years: the last full regeneration is the
+  # 4.3.30 release of September 2019 - all 69 pages still carry its two
+  # generation timestamps, one second apart - while the sources changed eleven
+  # times since. The pages that did follow were patched by hand, keeping that
+  # 2019 footer, and eleven others were simply left behind.
+  #
+  # That was rational while regenerating cost 69 files: man2html restamped
+  # every footer from the clock, so a one-line fix produced a 69-file diff.
+  # mandoc is reproducible and makehtml.sh now takes a single page, so the
+  # correct gesture is finally cheaper than the wrong one - and this job is
+  # what keeps it that way.
+  #
+  # It fails rather than warns, but it uploads what it generated: a contributor
+  # without mandoc downloads the artifact instead of installing anything.
+  manpages:
+    name: manual pages match their sources
+    # The same push filter as the build job above.
+    if: >-
+      github.event_name != 'push' ||
+      github.repository != 'xymon-monitoring/xymon' ||
+      github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/heads/release/') ||
+      startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04   # pinned: the converter's output is version-sensitive (see #52)
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # python3 as well as mandoc: makehtml.sh pipes through
+      # build/manpage-html.py. The runner image happens to carry python3, but
+      # relying on that leaves the dependency invisible until an image change
+      # removes it.
+      - name: Install the documentation toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mandoc python3
+
+      - name: Regenerate and compare
+        run: |
+          set -euo pipefail
+          before=$(mktemp -d)
+          cp -R docs/manpages/. "$before/"
+          ./build/makehtml.sh
+          if diff -ru "$before" docs/manpages >/tmp/manpages.diff; then
+            echo "docs/manpages is up to date with the roff sources"
+            exit 0
+          fi
+          {
+            echo "The HTML under docs/manpages/ is out of date with the man-page"
+            echo "sources (the .1/.5/.8 roff files). Update it to match the sources"
+            echo "and commit."
+            echo
+            echo "Out-of-date pages:"
+            git status --porcelain -- docs/manpages | sed 's/^/  /'
+            echo
+            echo "  1. With mandoc + python3, rebuild each changed page's HTML from its source:"
+            echo "         build/makehtml.sh common/hosts.cfg.5"
+            echo
+            echo "  2. Without any toolchain, download the HTML this run already built from"
+            echo "     the sources -- this overwrites the stale pages under docs/manpages/:"
+            echo "         gh run download $GITHUB_RUN_ID -n manpages-regenerated -D docs/manpages"
+            echo "     run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo
+            echo "Then commit:  git add docs/manpages && git commit"
+            echo
+            echo "Diff (first 200 lines):"
+            sed -n '1,200p' /tmp/manpages.diff
+          } >&2
+          echo "::error::docs/manpages is out of date - see the job log and the manpages-regenerated artifact"
+          exit 1
+
+      - name: Upload the regenerated pages
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manpages-regenerated
+          path: docs/manpages/
+>>>>>>>

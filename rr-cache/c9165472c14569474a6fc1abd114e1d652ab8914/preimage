@@ -1,0 +1,378 @@
+          <<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>
+<<<<<<<
+           * * *   Release notes for Xymon 4.3.30   * * *
+=======
+           * * *   Release notes for Xymon 4.4      * * *
+>>>>>>>
+          <<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>
+
+	ALPHA RELEASE -- NOT RECOMMENDED FOR PRODUCTION USE
+
+Note: For previous release notes, see RELEASENOTES-4.3 file.
+
+
+<<<<<<<
+Maintained by the release manager on the Changes branch; do not edit it in a
+pull request. See CONTRIBUTING.md; full rules in RELEASING.md.
+
+
+Changes for 4.3.30
+==================
+
+Various crashes and bugs relating to string handling changes have been fixed, 
+including problems with hostnames with dashes in them.
+
+Combostatus tests propagated up from other combostatus tests should now
+display properly.
+
+
+Changes for 4.3.29
+==================
+
+Several buffer overflow security issues have been resolved, as well as a potential
+XSS attack on certain CGI interfaces. Although the ability to exploit is limited, 
+all users are urged to upgrade. The assigned CVE numbers are:
+
+  CVE-2019-13451, CVE-2019-13452, CVE-2019-13455, CVE-2019-13473, 
+  CVE-2019-13474, CVE-2019-13484, CVE-2019-13485, CVE-2019-13486
+
+In addition, revisions have been made to a number of places throughout 
+the code to convert the most common sprintf statements to snprintf for 
+safer processing, which should reduce the impact of similar parsing. 
+Additional work on this will continue in the future.
+
+The affected CGIs are:
+
+	history.c (overflow of histlogfn) = CVE-2019-13451
+	reportlog.c (overflow of histlogfn) = CVE-2019-13452
+	csvinfo.c (overflow of dbfn) = CVE-2019-13273
+	csvinfo.c (reflected XSS) = CVE-2019-13274
+	acknowledge.c (overflow of msgline) = CVE-2019-13455
+
+	appfeed.c (overflow of errtxt) = CVE-2019-13484
+	history.c (overflow of selfurl) = CVE-2019-13485
+	svcstatus.c (overflow of errtxt) = CVE-2019-13486
+
+We would like to thank the University of Cambridge Computer Security 
+Incident Response Team for their assistance in reporting and helping 
+resolve these issues.
+
+
+
+Additional Changes:
+
+On Linux, a few additional tmpfs volumes are ignored by default
+on new (or unmodified) installs. This includes /run/user/<uid>,
+which is a transient, per-session tmpfs on some systems. To re-
+enable monitoring for this (if you are running services under
+a user with a login session), you may need to edit the analysis.cfg(5)
+file.
+
+After upgrade, these partitions will no longer be alerted on or
+tracked, and their associated RRD files may also be removed:
+
+ /run/user/<uid> (but NOT /run)
+ /dev (but NOT /dev/shm)
+ /sys/fs/cgroup
+ /lib/init/rw
+
+
+The default hard limit for an incoming message has been raised from 
+10MB to 64MB
+
+The secure apache config snippet no longer requires a xymongroups file
+to be present (and module loaded), since it's not used by default. This
+will not affect existing installs.
+
+A --no-cpu-listing option has been added to xymond_client to suppress the 
+'top' output in cpu test status messages.
+
+The conversation used in SMTP checks has been adjusted to perform a proper
+"EHLO" greeting against servers, using the host string 'xymonnet'. If the 
+string needs to be adjusted, however, see protocols.cfg(5)
+
+"Actual" memory usage (as a percentage) may be >100% on some platforms 
+in certain situations. This alone will not be tagged as "invalid" data and
+should be graphed in RRD.
+
+
+Changes for 4.3.28
+==================
+
+OpenSSL 1.1.0 is now supported.
+
+Specific TLS variants (1.0, 1.1, and 1.2) can be selected for 
+an HTTP test using new protocol tags (see hosts.cfg(5))
+OpenSSL 1.0.1+ is required.
+
+
+The bundled version of c-ares (for hosts without a system lib)
+has been updated to 1.12.0
+
+Xymond_alert should now provide more stable behavior when hosts
+are dropped or alerts go stale between launches.
+
+Summary messages are properly working again.
+
+SCRIPT message sizes are now limited only by environment memory
+and can be increased by adding a MAXMSG_ALERTSCRIPT variable to
+your xymonserver.cfg file
+
+A number of typos have been corrected.
+
+The RRD definition for the netstat graph has been tweaked to
+give a more readable layout.
+
+
+Changes for 4.3.27
+==================
+
+Fixes for CGI acknowledgements and NK/criticalview web redirects.
+
+Xymon should now properly check for lack of SSLv3 (or v2) support at compile-
+time and exclude the openssl options as needed.
+
+Completely empty directories (on Windows) are no longer considered errors.
+
+
+Changes for 4.3.26
+==================
+
+This is mostly a bug fix release for javascript issues on the info and 
+trends pages, along with the enable / disable CGI. Several browsers had
+difficulty with the new CSP rules introduced in 4.3.25.
+
+XYMWEBREFRESH is now used as the default refresh interval for dynamic
+status pages and various other xymongen destinations. Non-svcstatus 
+pages can be overridden by altering the appropriate *_header template
+files, but svcstatus refresh interval uses this value. (default: 60s)
+Set in xymonserver.cfg(5).
+
+Incoming test names are now restricted to alphanumeric characters, colons
+dashes, underscores, and slashes. Slashes and colons may be restricted in 
+a future release.
+
+Unconfigured (ghost) host names are now restricted to alphanumerics, colons, 
+commas, periods, dashes, and underscores. It is strongly recommended to use only
+valid hostnames and DNS components in servers names.
+
+Files matched multiple times by logfetch in the client config retrieved
+from config-local.cfg (such as a file matching multiple globs) will now only 
+be scanned once and only use the ignore/trigger rules from its first entry.
+(Note: A future version of Xymon may combine all matching rules for a file together.)
+
+CLASS groupings in analysis.cfg and alerts.cfg will now reliably work for
+hosts with a CLASS override in hosts.cfg. Previous, this class was not used
+in favor of the class type sent in on any specific client message.
+
+
+
+Changes for 4.3.25
+==================
+
+Several security issues have been resolved relating to "config" messages 
+and Cross-Site-Scripting vulnerabilities in the web interface. We would 
+like to thank Markus Krell for reporting the following security issues 
+and for his assistance in working with us to resolve them.
+
+
+(CVE-2016-2054) - Buffer overflow when handling "config" file requests.
+(CVE-2016-2056) - Shell command injection vulnerability in useradm.sh 
+and chpasswd.sh.
+
+(CVE-2016-2055) - Credential leakage with "config" file requests.
+The default suggested location for htpasswd files used in securing the
+CGI interface had been $XYMONHOME/etc/ and documentation did not mention
+that this file should ONLY be readable by the apache/webserver user.
+
+Administrators should verify this file is not readable by the xymon user 
+and modify ownership and permissions as needed. Additionally, the 
+following restrictions have been added to files requested via "config" 
+messages sent to xymond:
+
+ - They must be regular files as returned by stat (no symlinks)
+ - They must end in ".cfg"
+
+The restriction on file names ending in ".cfg" can be overridden by setting 
+ALLOWALLCONFIGFILES="TRUE" in xymonserver.cfg and restarting xymond.
+
+Note that config files are processed through normal xymon file reading, 
+so features such as "include" and "directory" still work when retrieving 
+files over the network. These included files are not subject to the same 
+restrictions.
+
+
+(CVE-2016-2057) - The xymond feedback queue (or BFQ) had been being 
+created using insecure permissions, allowing any local user to write 
+messages into the queue. This has been resolved and the queue is now 
+created 0620 to the xymon user. If present xymond will attempt to 
+re-create it using the correct permissions, but this process may not 
+succeed on all OS's. Administrators should verify queue permissions 
+using ipcs and delete the key manually with ipcrm if needed.
+
+
+(CVE-2016-2058) - Dynamic and historical status pages generated by the 
+CGI interface now include Content-Security-Policy headers to prevent 
+javascript execution from the payload of status messages themselves. The 
+built-in functionality can be overridden by setting XYMON_NOCSPHEADER in 
+xymonserver.cfg, if you wish to override this via an apache 
+configuration.
+
+
+Additional changes:
+
+
+A bug introduced in 4.3.22 that could cause xymond_alert to fail to
+alert after seeing an unknown (newly added) host alert for the 
+first time has been fixed. Additionally, xymond_alert now regularly
+reloads the hosts.cfg file to pick up changes.
+
+
+The "Actual" memory value on Windows systems will be reported
+more accurately. (Thanks, John Rothlisberger)
+
+A trends_header and trends_footer have been added in the /web/
+templates directory for use on trends display pages.
+
+The xymonclient.cfg file now has a section for passing options
+to xymond_client and logfetch without having to edit the script.
+
+The logfetch command now accepts --noexec as an option to inhibit
+running commands from the client config used to list files to scan
+for messages.
+
+The logfetch command can use a file glob(7) in client-local.cfg (or 
+localclient.cfg) indicated by angle brackets. This is more efficient
+and more secure than executing an `ls` command when matching known
+file or log patterns.
+
+The xymon.sh script now better matches LSB exit code expectations.
+
+The --processor argument to xymond_rrd, allowing RRD data (ie, metrics) 
+to be easily sent to an external system such as OpenTSDB has been 
+properly documented.
+
+
+All users of previous versions are strongly urged to upgrade.
+
+
+Changes for 4.3.24
+==================
+
+Fixes a bug introduced in 4.3.22 where the non-excepted HTTP status 
+codes were always seen as Critical instead of OK/Warning as intended.
+
+All users are urged to upgrade.
+
+
+Changes for 4.3.23
+==================
+
+Fixes a bug in 4.3.22 where RRD tracking of number of matching processes or
+ports open on a client was not being performed.
+
+=======
+Xymon 4.4 represents a large number of changes from 4.3 for administrators,
+however most users should notice little distinction in day-to-day usage.
+>>>>>>>
+
+Among the many new features introduced are:
+
+- IPv6 support for testing and communication
+- SSL support for submission and/or client authentication
+- message compression, using zlib, LZO, or LZ4 algorithms
+- significant performance improvements to xymond and client
+  algorithms (regressions expected in alpha)
+- more flexibility in deployment and more consistent configuragion
+- hooks for SELinux compatibility systemd launching, tmpfs xymongen
+  destinations, rrdcached usage, and much more
+
+
+See the Changes file for a more detailed list. See the README files for
+broader discussion on various topics (such as compression and the backfeed
+queue).
+
+
+Note: This is an alpha release. Known issues will be listed below or 
+available on the xymon website (http://xymon.sourceforge.net/).
+
+
+
+
+XYMON 4.4 ALPHA 1 KNOWN ISSUES AND RELEASE NOTES
+================================================
+
+Carefuly examine all apache config files for customizations. New snippets have
+been added for specifying report and snapshot subdirectories in the WWW root.
+
+Crashes of any xymon components (and there may be several) will be reported
+under the "xymond" test. Singular crashes will be overwritten and no longer 
+need to be dropped manually as a spurious test. Recurring crashed will alert
+under xymond.
+
+The "backfeed queue" is not enabled by default in xymond to facilitate 
+network stack testing, but will likely be turned on for the final release.
+Use --bfq/--no-bfq as necessary if this is or is not desired.
+See README.backfeed for more details.
+
+By default, xymon sends using the existing, compatible message format used
+by all previous versions (and Big Brother). To send using the "V5" format
+(the size of the remaining message is prefixed, allowing truncated messages
+to be rejected, and possibly future improvements later on), add the following 
+to your environment:
+
+XYMONV5SERVER=TRUE
+
+This can be added in xymonclient.cfg, xymonserver.cfg, 
+/etc/sysconfig/xymon-client or any other location where the sending 
+process will have it set. This may change for the final release.
+
+(Note: Previous trunk versions had an inverted version of this logic, requiring
+XYMONV4SERVER=1 to send to an older server.)
+
+
+The configure script is likely setting XYMONHOME/XYMONCLIENTHOME and
+XYMSRV/XYMSERVERS/XYMONSERVERS incorrectly, which will prevent xymonlaunch
+from correctly launching anything. Double check the xymon environment
+files (xymonserver/xymonclient.cfg) before starting either the server or
+client.
+
+The tools/xymon-client.default and tools/xymonlaunch files may be placed
+into /etc/{sysconfig,default}/{xymon-client,xymonlaunch} to more easily
+set $XYMONSERVERS
+
+Revealed by the above issue is a bug causing a crash in the client (or
+anywhere) when given an empty string as the destination argument (instead
+of 0, 127.0.0.1 or no variable set). Don't do this --> [ xymon '' "ping" ]
+
+The client and logfetch binary may be being re-compiled during 'make install'
+
+Compilation may fail if c-ares and at least one compression library is not
+present (lzo/lz4/zlib are all options). xxHash libraries are also highly
+recommended as the plan is for xxhash to replace md5 for checksumming
+functionality. libtirpc may be necessary on some platforms, and it's
+possible the build code is still expecting traditional (Sun) RPC
+
+
+
+Using Xymon with IPv6 - Alpha Notes
+===================================
+
+IPv6 transmission of messages (client->xymond, or xymonnet->xymond) 
+should be working properly.
+
+IPv6 ICMP checks (conn tests), whether specified with literals in 
+hosts.cfg or via DNS lookup, should work as expected.
+
+Other IPv6-only TCP checks (including HTTP) are not working correctly.
+
+IPv6 [literals] in URL checks are not parsed properly.
+
+
+Currently, xymond can only listen on a single address. If your system 
+supports IPv6 this will be the IPv6 interface, which means your system 
+must have the IPV6_ONLY option disabled (usually in sysctl) so as to 
+allow IPv4 connections to be completed over the IPv6 stack. Certain 
+"localhost" connections may be seen by xymond as coming from 
+"::ffff:127.0.0.1" and the IPV4-over-IPV6 addresses may be added to 
+--admin-senders in tasks.cfg to do what you want.

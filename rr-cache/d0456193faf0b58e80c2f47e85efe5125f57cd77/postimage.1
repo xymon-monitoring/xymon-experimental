@@ -1,0 +1,79 @@
+.TH XYMOND_HISTORY 8 "Version 4.3.30:  4 Sep 2019" "Xymon"
+.SH NAME
+xymond_history \- xymond worker module for logging status changes
+.SH SYNOPSIS
+.B "xymond_channel \-\-channel=stachg xymond_history [options]"
+
+.SH DESCRIPTION
+xymond_history is a worker module for xymond, and as such it is normally
+run via the
+.I xymond_channel(8)
+program. It receives xymond status-change messages from the "stachg"
+channel via stdin, and uses these to update the history logfiles in a manner
+that is compatible with the standard Big Brother daemon, bbd.
+
+.SH OPTIONS
+.IP "\fB\-\-histdir\fR=\fIDIRECTORY\fR"
+The directory for the history files. If not specified, the
+directory given by the XYMONHISTDIR environment is used.
+
+.IP "\fB\-\-histlogdir\fR=\fIDIRECTORY\fR"
+The directory for the historical status-logs. If not specified, the
+directory given by the XYMONHISTLOGS environment is used.
+
+.IP "\fB\-\-minimum\-free\fR=\fIN\fR"
+Sets the minimum percentage of free filesystem space on the $XYMONHISTLOGS
+directory. If there is less than N% free space, xymond_history will
+not save the detailed status-logs.
+N is a percentage between 0 and 100; 0 disables the free-space check.
+The value must be a plain integer. Invalid values produce a warning and use the
+default of 5. Negative values produce a warning and are clamped to 0, preserving
+their historical meaning of disabling the check. Values above 100 produce a
+warning and are capped at 100.
+
+.IP "\fB\-\-pidfile\fR=\fIFILENAME\fR"
+xymond_history writes the process-ID it is running with to this file.
+This is for use in automated startup scripts. The default file is
+$XYMONRUNDIR/xymond_history.pid. If the file cannot be opened or written,
+a warning identifies the path and history processing continues.
+
+.IP "\fB\-\-debug\fR[=VALUE]"
+Enable debugging output. Suffixed forms such as \fB\-\-debug=1\fR are accepted
+for compatibility.
+.PP
+Unknown options produce a warning and are ignored.
+
+.SH ENVIRONMENT
+.IP "\fBXYMONALLHISTLOG\fR"
+This environment variable controls if the $XYMONHISTDIR/allevents
+logfile is updated. This file is used by the event-log display on the
+nongreen html page and the eventlog-webpage, among other things.
+You can disable it by setting XYMONALLHISTLOGS=FALSE, but this is not
+recommended.
+
+.IP "\fBXYMONHOSTHISTLOG\fR"
+This environment variable controls if the $XYMONHISTDIR/HOSTNAME
+logfile is updated. This file holds a list of all status changes seen
+for a single host, but is not used by any of the standard Xymon
+tools. If you do not want to save this, you can disable it by setting
+XYMONHOSTHISTLOG=FALSE.
+
+.IP "\fBSAVESTATUSLOG\fR"
+This environment variable controls if the historical
+status-logs are saved whenever a status change occurs. These logfiles
+are stored in the $XYMONHISTLOGS directory, and are used for the detailed
+log-display of a status from the Xymon "History" page. If you
+do not want to save these, you can disable it by setting SAVESTATUSLOG=FALSE.
+If you want to save all except some specific logs, use SAVESTATUSLOG=TRUE,!TEST1[,!TEST2...]
+If you want to save none except some specific logs, use SAVESTATUSLOG=FALSE,TEST1[,TEST2...]
+.br
+NOTE: Status logs will not be saved if there is less than 5% free space on
+the filesystem hosting the $XYMONHISTLOGS directory. The threshold can
+be tuned via the "\-\-minimum\-free" option.
+
+.SH FILES
+This module does not rely on any configuration files.
+
+.SH "SEE ALSO"
+xymond_channel(8), xymond(8), xymon(7)
+

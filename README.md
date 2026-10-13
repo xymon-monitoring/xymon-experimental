@@ -90,6 +90,17 @@ A glue patch whose change is already in main -- the pull requests it joins
 have merged with it -- is reported as obsolete, a notice rather than a
 failure: delete it from `glue/`.
 
+## Lanes
+
+When a lane run on an `experimental/<milestone>` branch finishes,
+`experimental lanes` looks at it. A lane GitHub cancelled because no runner
+took it -- macOS arm64 runners are short -- is run again, once, when that is
+the only kind of miss in its run; a lane that failed is not, since running it
+until it passes would hide the intermittent problems the lanes exist to find.
+Once every lane run for the branch's current commit has finished, one comment
+on the status issue gives each lane's result, and mentions the maintainer when
+one failed or stayed cancelled.
+
 ## When it runs
 
 Every day at 03:17 UTC, and on demand. A scheduled run first hashes what the

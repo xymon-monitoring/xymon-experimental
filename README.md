@@ -58,7 +58,19 @@ request here.
 
 Each run of the `experimental build` workflow leaves, as an artifact, the
 report (`EXPERIMENTAL.md`, also on the run's summary page), the plan, and a
-git bundle holding the milestone branches.
+git bundle of the milestones; and it pushes each milestone, with the CI of
+`cmake/bootstrap` on top, to `candidate/<milestone>`, where the `build` and
+`tests` workflows run.
 
-Not done yet: publishing those branches here and running the lanes on them,
-which needs a token allowed to push workflow files; and a daily schedule.
+`experimental promote` then moves `experimental/<milestone>` to a candidate
+once both have passed. A candidate that fails moves nothing: the branch keeps
+the last build that passed, and comparing it with `candidate/<milestone>`
+shows whether it is behind. When the newest milestone moves, the lanes are
+started on it.
+
+Pushing needs a deploy key with write access, kept as the secret
+`EXPERIMENTAL_DEPLOY_KEY` of the `publish` environment, which only workflows
+running from `main` can use. A workflow token cannot push commits that touch
+`.github/workflows`, and every Xymon branch does.
+
+Not done yet: a daily schedule.

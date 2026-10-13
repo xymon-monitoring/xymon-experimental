@@ -3,8 +3,11 @@ name: experimental build
 # Integrates the open, non-draft pull requests of xymon-monitoring/xymon that
 # carry a milestone, in milestone order, on top of main. See README.md.
 #
-# Runs pull-request code only as git operations; it holds no secret and its
-# token can only read.
+# The integrate job handles pull-request code only through git, with a token
+# that can only read. The publish job runs no pull-request code: it pushes the
+# result, with the CI overlay on top, to candidate/<milestone>, which starts
+# the build and tests workflows there; experimental-promote.yml moves
+# experimental/<milestone> to a candidate once both pass.
 
 on:
   workflow_dispatch:
@@ -79,4 +82,43 @@ jobs:
             EXPERIMENTAL.md
             plan.tsv
             report.tsv
+            overlay.sha
             experimental.bundle
+
+  publish:
+    needs: integrate
+    runs-on: ubuntu-24.04
+    environment: publish
+    steps:
+      - name: Fetch the result
+        uses: actions/download-artifact@v4
+        with:
+          name: experimental-${{ github.run_id }}
+
+      - name: Push each milestone, with the CI overlay, as a candidate
+        env:
+          DEPLOY_KEY: ${{ secrets.EXPERIMENTAL_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          overlay=$(cat overlay.sha)
+          git init -q work && cd work
+          git config user.name "xymon-experimental"
+          git config user.email "xymon-experimental@users.noreply.github.com"
+          git fetch -q ../experimental.bundle '+refs/heads/experimental/*:refs/m/*'
+          git fetch -q https://github.com/bonomani/xymon cmake/bootstrap
+          git cat-file -e "$overlay^{commit}"
+          refs=""
+          for ref in $(git for-each-ref --format='%(refname)' refs/m/); do
+            m=${ref#refs/m/}
+            git checkout -q --detach "$ref"
+            git rm -q -r --ignore-unmatch .github ci cmake-local cmake docker
+            git checkout "$overlay" -- .github ci cmake-local cmake docker
+            git commit -q -m "CI only: the lane machinery from cmake/bootstrap at ${overlay:0:9}"
+            git update-ref "refs/c/$m" HEAD
+            refs="$refs +refs/c/$m:refs/heads/candidate/$m"
+          done
+          git push -q git@github.com:${{ github.repository }}.git $refs

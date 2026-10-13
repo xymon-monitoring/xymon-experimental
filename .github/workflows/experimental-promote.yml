@@ -1,0 +1,77 @@
+name: experimental promote
+
+# Moves experimental/<milestone> to candidate/<milestone> once the build and
+# tests workflows have both passed on it; a candidate that fails moves nothing,
+# so the branch keeps the last build that passed. When the newest milestone
+# moves, the lanes are started on it.
+#
+# Runs from main only (workflow_run always does), and runs no pull-request
+# code: it reads run results and pushes a commit already tested.
+
+on:
+  workflow_run:
+    workflows: [build, tests]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: experimental-promote
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: startsWith(github.event.workflow_run.head_branch, 'candidate/')
+    runs-on: ubuntu-24.04
+    environment: publish
+    steps:
+      - name: Promote the candidate if build and tests passed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_KEY: ${{ secrets.EXPERIMENTAL_DEPLOY_KEY }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          m=${BRANCH#candidate/}
+          now=$(gh api "repos/$REPO/git/ref/heads/$BRANCH" -q .object.sha)
+          if [ "$now" != "$SHA" ]; then
+            echo "candidate/$m has moved on from ${SHA:0:9}; nothing to do."; exit 0
+          fi
+          for w in build tests; do
+            r=$(gh run list -R "$REPO" --workflow "$w.yml" --commit "$SHA" --event push -L 1 \
+                  --json status,conclusion -q '.[0] | "\(.status) \(.conclusion)"')
+            case "$r" in
+              "completed success") ;;
+              completed*) echo "::warning::$w did not pass on candidate/$m (${SHA:0:9}): experimental/$m stays where it is."; exit 0 ;;
+              *) echo "$w has not finished on ${SHA:0:9}; its completion will run this again."; exit 0 ;;
+            esac
+          done
+          cur=$(gh api "repos/$REPO/git/ref/heads/experimental/$m" -q .object.sha 2>/dev/null || true)
+          if [ "$cur" = "$SHA" ]; then
+            echo "experimental/$m is already at ${SHA:0:9}."; exit 0
+          fi
+
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git init -q work && cd work
+          git fetch -q "https://github.com/$REPO" "$BRANCH"
+          [ "$(git rev-parse FETCH_HEAD)" = "$SHA" ]
+          git push -q -f "git@github.com:$REPO.git" "$SHA:refs/heads/experimental/$m"
+          echo "experimental/$m -> ${SHA:0:9}" >> "$GITHUB_STEP_SUMMARY"
+
+          newest=$(gh api "repos/$REPO/branches" --paginate -q '.[].name' | sed -n 's|^candidate/||p' | sort -V | tail -1)
+          if [ "$m" = "$newest" ]; then
+            for f in alpine archlinux centos7 debian amazonlinux freebsd netbsd openbsd opensuse rockylinux almalinux fedora oraclelinux ubuntu; do
+              gh workflow run pipeline-select-run-lanes.yml -R "$REPO" --ref "experimental/$m" \
+                -f family="$f" -f arch=amd64 -f variant=server -f verify_depth=test
+            done
+            gh workflow run pipeline-select-run-lanes.yml -R "$REPO" --ref "experimental/$m" \
+              -f family=macos -f arch=all -f variant=server -f verify_depth=test
+            echo "lanes started on experimental/$m" >> "$GITHUB_STEP_SUMMARY"
+          fi

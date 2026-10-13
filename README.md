@@ -49,8 +49,9 @@ line names the pull requests they join:
 
     Needs: #219 #406
 
-A glue patch is applied after the merges, when every pull request it names is
-in the build or already merged upstream. One is added or changed by a pull
+A glue patch is applied at the end of the first milestone by which every pull
+request it names is in the build or already merged upstream, so each milestone
+branch carries the glue it needs. One is added or changed by a pull
 request here.
 
 ## Output

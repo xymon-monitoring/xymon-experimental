@@ -1,0 +1,157 @@
+# Environment settings for the Xymon client.
+optional include /etc/default/xymon-client
+optional include /etc/sysconfig/xymon-client
+
+XYMSRV="0.0.0.0"                # IP address of the Xymon server
+XYMSERVERS="$XYMONSERVERS"      # IP of multiple Xymon servers. XYMSRV must be "0.0.0.0".
+CONFIGCLASS="$SERVEROSTYPE"     # Default configuration class for logfiles
+
+PATH="/bin:/usr/bin:/sbin:/usr/sbin:/etc"  # PATH setting for the client scripts.
+SHELL="/bin/sh"				# Shell to use when forking programs
+
+# You normally don't need to modify anything below here
+XYMONDPORT="1984"                   # Portnumber where xymond listens
+XYMONCLIENTHOME="@XYMONTOPDIR@" # Directory for the Xymon client files
+XYMONHOME="$XYMONCLIENTHOME"       # Directory for the Xymon client files
+XYMON="$XYMONHOME/bin/xymon"          # The Xymon client "xymon" utility
+XYMONTMP="$XYMONHOME/tmp"             # Where we may store temporary files.
+XYMONCLIENTLOGS="$XYMONHOME/logs"     # Where we store the client logfiles
+XYMONRUNDIR="$XYMONHOME/logs"         # Where we store pid and other run files
+
+# Options to logfetch, the xymon binary which examines log files for recent changes.
+LOGFETCHOPTS=""
+
+
+# Local Mode (Only) Options
+#
+# Running the Xymon client in local-config mode will cause threshold evaluation to
+# be performed locally rather than sending raw data sent to the Xymon server for
+# analysis. Only the processed results will be forwarded to your Xymon server.
+# 
+# This can also be overridden by adding a "--local" option to xymonclient.sh in
+# the $XYMONHOME/etc/clientlaunch.cfg file
+LOCALMODE="no"
+
+# Local config for xymond_client (Ignored when not in local mode)
+# This file is in the same format as analysis.cfg(5) on the Xymon server
+LOCAL_CLIENTCONFIG="$XYMONHOME/etc/localclient.cfg"
+
+# Local config for logfetch (Ignored when not in local mode)
+# If not present, any saved server-side configs will be used
+LOCAL_LOGFETCHCFG="$XYMONHOME/etc/logfetch.cfg"
+
+# Local options for xymond_client (Ignored when not in local mode)
+LOCAL_CLIENTOPTS=""
+
+
+# Message compression
+# Xymon clients can compress messages before sending to the xymon server to save on bandwidth.
+# This requires version 4.4 of higher of xymond to be running. If using a format other than "lzo",
+# the destination server must have been compiled with support for your algorithm.
+# 
+# If your destination is a xymonproxy, you are running in server-side (non-local) config mode,
+# and you are not running in $STATUSMODE, you should NOT enable compression as your client 
+# messages will not return a logfetch configuration.
+COMPRESSION="TRUE"		# Set to "TRUE" to enable for xymon client processes 
+COMPRESSTYPE="lzo"		# Default is "lzo" unless "lz4hc" is available
+				# See README.compresson for more details
+
+
+# Auto-include any files dropped into the directory below
+optional directory @XYMONHOME@/etc/xymonclient.cfg.d
+
+<<<<<<<
+=======
+# Options to logfetch, the xymon binary which examines log files for recent changes.
+LOGFETCHOPTS=""
+
+
+# Filesystem reporting -- the XYMONCLIENT_FS_* variables tune which mounts the
+# client's disk and inode reports include. The full contract - per-OS
+# mechanisms, matching rules, examples - lives in xymonclient.cfg(5); the
+# blocks below list only each OS's defaults. Unlisted OSes ignore the
+# variables. WARNING: XYMONCLIENT_FS_DF_LOCAL_ONLY=no can hang df on a stale
+# remote mount and turn the whole host purple - see the manual first. On Linux,
+# FreeBSD, NetBSD, OpenBSD and macOS that hang is bounded by the remote-df
+# sentinel (XYMONCLIENT_FS_REMOTE_DF_BUDGET, XYMONCLIENT_FS_REMOTE_HARDBLOCK_TYPES);
+# the remaining clients carry it in full.
+#
+# Linux (xymonclient-linux.sh) - excludes nodev pseudo-filesystems and the
+# always-full iso9660/squashfs images:
+# XYMONCLIENT_FS_INCLUDE_TYPES="zfs virtiofs tmpfs"
+# XYMONCLIENT_FS_EXCLUDE_TYPES="iso9660 squashfs fuse.snapfuse"
+# XYMONCLIENT_FS_DF_LOCAL_ONLY="yes"
+#
+# FreeBSD (xymonclient-freebsd.sh) - excludes via df -tno<csv>; the inode
+# report also drops zfs/tmpfs:
+# XYMONCLIENT_FS_INCLUDE_TYPES=""
+# XYMONCLIENT_FS_EXCLUDE_TYPES=""
+# XYMONCLIENT_FS_DF_LOCAL_ONLY="yes"
+#
+# NetBSD (xymonclient-netbsd.sh) - excludes kernfs/procfs/cd9660/null/ptyfs;
+# the inode report also drops zfs:
+# XYMONCLIENT_FS_INCLUDE_TYPES=""
+# XYMONCLIENT_FS_EXCLUDE_TYPES=""
+# XYMONCLIENT_FS_DF_LOCAL_ONLY="yes"
+#
+# OpenBSD (xymonclient-openbsd.sh) - excludes kernfs/procfs/cd9660; tmpfs is
+# kept in both reports:
+# XYMONCLIENT_FS_INCLUDE_TYPES=""
+# XYMONCLIENT_FS_EXCLUDE_TYPES=""
+# XYMONCLIENT_FS_DF_LOCAL_ONLY="yes"
+#
+# macOS (xymonclient-darwin.sh) - matches mount attributes as well as types;
+# drops nobrowse/read-only mounts (the root data volume is exempt from those
+# two defaults, but not from an explicit exclude):
+# XYMONCLIENT_FS_INCLUDE_TYPES=""
+# XYMONCLIENT_FS_EXCLUDE_TYPES=""
+# XYMONCLIENT_FS_DF_LOCAL_ONLY="yes"
+#
+# AIX (xymonclient-aix.sh) - excludes procfs/ahafs/namefs/autofs/cdrfs from
+# the disk report, by mount point via mount(8) since AIX df cannot exclude by
+# type; the inode report needs no type filter, its own guard already skipping
+# rows without inode accounting. DF_LOCAL_ONLY covers both reports and matters
+# more here than elsewhere: AIX has no remote-df sentinel, so "no" leaves a
+# wedged NFS mount able to hang the run:
+# XYMONCLIENT_FS_INCLUDE_TYPES=""
+# XYMONCLIENT_FS_EXCLUDE_TYPES=""
+# XYMONCLIENT_FS_DF_LOCAL_ONLY="yes"
+
+
+# Local Mode (Only) Options
+#
+# Running the Xymon client in local-config mode will cause threshold evaluation to
+# be performed locally rather than sending raw data sent to the Xymon server for
+# analysis. Only the processed results will be forwarded to your Xymon server.
+# 
+# This can also be overridden by adding a "--local" option to xymonclient.sh in
+# the $XYMONHOME/etc/clientlaunch.cfg file
+LOCALMODE="no"
+
+# Local config for xymond_client (Ignored when not in local mode)
+# This file is in the same format as analysis.cfg(5) on the Xymon server
+LOCAL_CLIENTCONFIG="$XYMONHOME/etc/localclient.cfg"
+
+# Local config for logfetch (Ignored when not in local mode)
+# If not present, any saved server-side configs will be used
+LOCAL_LOGFETCHCFG="$XYMONHOME/etc/logfetch.cfg"
+
+# Local options for xymond_client (Ignored when not in local mode)
+LOCAL_CLIENTOPTS=""
+
+>>>>>>>
+
+# Compatibility settings
+HOBBITCLIENTHOME="$XYMONCLIENTHOME"
+
+BBDISP="$XYMSRV"
+BBDISPLAYS="$XYMSERVERS"
+
+BBPORT="$XYMONDPORT"
+BBHOME="$XYMONHOME"
+BB="$XYMON"
+BBTMP="$XYMONTMP"
+BBCLIENTLOGS="$XYMONCLIENTLOGS"
+
+# Local additions: any file dropped into the directory below is included
+optional directory @XYMONHOME@/etc/xymonclient.d

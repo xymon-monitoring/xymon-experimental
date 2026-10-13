@@ -1,0 +1,20 @@
+name: Pipeline - Select and Run Lanes
+
+# A placeholder. GitHub starts a workflow only if a file of that path exists
+# on the default branch; the run itself uses the file on the branch it is
+# started on -- experimental/<milestone>, which carries the real one from
+# cmake/bootstrap. experimental-promote.yml starts it there. On main there are
+# no lanes to run.
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "::error::start this on an experimental/<milestone> branch, not on main"
+          exit 1

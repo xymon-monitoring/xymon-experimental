@@ -17,8 +17,10 @@ permissions:
   contents: read
   actions: write
 
+# One group per candidate: GitHub keeps one pending run per group and cancels
+# the older, which would drop another milestone's promotion.
 concurrency:
-  group: experimental-promote
+  group: experimental-promote-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: false
 
 jobs:

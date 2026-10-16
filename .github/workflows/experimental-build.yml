@@ -27,11 +27,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # What the build depends on, as one hash: the eligible pull requests (number,
-  # head, milestone, base, Depends-on lines), main, the CI overlay, this
-  # repository and the recorded resolutions. A scheduled run whose hash matches
-  # the last build that published stops here; a manual run builds unless
-# asked to do the same.
+  # What the build tests, as one hash: the eligible pull requests (number,
+  # head, milestone, base, Depends-on lines), main, the recorded resolutions,
+  # and this repository's glue/ and scripts/. Not the CI overlay nor this
+  # repository's workflows: they change how the lanes run, not what they test,
+  # so they ride along with the next build that has something new to test (it
+  # always takes the newest overlay), and a manual run applies them at once.
+  # A scheduled run whose hash matches the last build that published stops
+  # here; a manual run builds unless
+  # asked to do the same.
   #
   # It also calls GitHub's "enable workflow" for this workflow, which resets
   # the 60 days without a commit after which GitHub pauses a schedule: this
@@ -64,9 +68,9 @@ jobs:
                       ([.body // "" | scan("(?m)^Depends-on: *#[0-9]+")] | join(","))]]
                   | sort_by(.[0]) | .[] | @tsv'
             git ls-remote https://github.com/xymon-monitoring/xymon refs/heads/main
-            git ls-remote https://github.com/bonomani/xymon refs/heads/cmake/bootstrap
             git ls-remote "https://github.com/${{ github.repository }}" refs/heads/rerere-cache
-            echo "${{ github.sha }}"
+            gh api "repos/${{ github.repository }}/git/trees/${{ github.sha }}" \
+              -q '.tree[] | select(.path == "glue" or .path == "scripts") | "\(.path) \(.sha)"'
           } > inputs.txt
           echo "key=experimental-inputs-$(sha256sum inputs.txt | cut -c1-32)" >> "$GITHUB_OUTPUT"
           echo "$(wc -l < inputs.txt) lines fingerprinted"

@@ -109,9 +109,13 @@ one failed or stayed cancelled.
 
 Every day at 03:17 UTC, and on demand. A scheduled run first hashes what the
 build depends on -- the eligible pull requests (number, head, milestone,
-base, `Depends-on:` lines), `main`, `cmake/bootstrap`, this repository and
-`rerere-cache` -- and stops within seconds when the hash matches the last
-build that published. A manual run always builds, unless `if_changed` is set.
+base, `Depends-on:` lines), `main`, `rerere-cache` and this repository's
+`glue/` and `scripts/` -- and stops within seconds when the hash matches the
+last build that published. A change to the CI overlay (`cmake/bootstrap`) or to
+this repository's workflows does not count: it changes how the lanes run, not
+what they test, so it waits for the next build that has something new to test.
+A manual run always builds, unless `if_changed` is set, and applies such a
+change at once.
 
 GitHub pauses a scheduled workflow after 60 days without a commit to the
 repository, and this one only gets commits when its scripts or glue change.

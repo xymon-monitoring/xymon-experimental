@@ -107,7 +107,7 @@ one failed or stayed cancelled.
 
 ## When it runs
 
-Every day at 03:17 UTC, and on demand. A scheduled run first hashes what the
+Every day at 00:17 UTC, and on demand. A scheduled run first hashes what the
 build depends on -- the eligible pull requests (number, head, milestone,
 base, `Depends-on:` lines), `main`, `rerere-cache` and this repository's
 `glue/` and `scripts/` -- and stops within seconds when the hash matches the

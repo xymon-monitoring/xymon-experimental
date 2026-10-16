@@ -1,8 +1,12 @@
 name: experimental lanes
 
-# Every 30 minutes, for the current commit of each experimental/<milestone>
-# branch. (Not on the lane runs' completion: they are started with the
-# workflow token, and GitHub starts no workflow from events that token causes.)
+# For the current commit of each experimental/<milestone> branch, each time a
+# lane run finishes, and once a day. A lane run is started with the workflow
+# token, so its completion starts no workflow_run here; instead its last job,
+# notify-lanes (cmake/bootstrap's pipeline-select-run-lanes.yml), dispatches
+# this one with its run id, and this waits for that run to finish before
+# reading it. The daily schedule is the safety net for a dispatch that never
+# came.
 #
 #   - a lane GitHub cancelled because no runner took it ("not acquired by
 #     Runner", macOS arm64 is short) is run again, once, when it is the only
@@ -19,8 +23,13 @@ name: experimental lanes
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '17 12 * * *'
   workflow_dispatch:
+    inputs:
+      after_run:
+        description: Lane run to wait for before looking (notify-lanes passes its own)
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -40,6 +49,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/experimental-lanes.yml/enable"
 
+      # The run that dispatched this one is still running its notify-lanes
+      # job; read too early, it would count as busy and nothing would be
+      # reported. It ends seconds later; ten minutes is a bound, not a wait.
+      - name: Wait for the lane run that asked
+        if: ${{ inputs.after_run != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ inputs.after_run }}
+        run: |
+          for _ in $(seq 60); do
+            [ "$(gh run view "$RUN" -R "${{ github.repository }}" --json status -q .status)" = completed ] && exit 0
+            sleep 10
+          done
+          echo "::warning::lane run $RUN had not finished after ten minutes; looking anyway"
+
       - name: Rerun capacity cancels, or report the lanes
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,7 +74,7 @@ jobs:
           # lane jobs of a run's latest attempt: id, conclusion, name
           lanes() {
             gh api --paginate "repos/$REPO/actions/runs/$1/jobs" \
-              -q '.jobs[] | select(.name | test("build-matrix|redispatch") | not)
+              -q '.jobs[] | select(.name | test("build-matrix|redispatch|notify-lanes") | not)
                   | [.id, (.conclusion // "running"), (.name | split(" / ")[0])] | @tsv'
           }
           capacity() {

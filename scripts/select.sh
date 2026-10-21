@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# select.sh PRS_JSON BASE -- print the integration plan, one PR per line:
+# select.sh PRS_JSON BASE [MERGED] -- print the integration plan, one PR per line:
 #   number <TAB> milestone <TAB> mode <TAB> head <TAB> deps <TAB> commits-or-reason
 #
-# Run inside a clone of xymon with each PR head fetched as refs/pr/N.
+# Run inside a clone of xymon with each PR head fetched as refs/pr/N. MERGED
+# lists, one number per line, pull requests already merged upstream.
 #
 # Selected: open, not draft, with a milestone, and based on main or on the
 # branch of another selected PR (a stack). A PR's dependencies are its
 # "Depends-on: #N" lines plus, for a stack, the PR its base branch belongs to.
+# A dependency in MERGED is met: its changes are in BASE already.
 #
 # Order: by milestone, then number, each PR after its dependencies.
 #
@@ -16,9 +18,10 @@
 #   pick   -- the branch carries copies of its dependencies (rebased or
 #             since amended): its own commits are those whose subject no
 #             dependency's commits have, and they are cherry-picked;
-#   skip   -- a dependency is not selected, or comes in a later milestone.
+#   skip   -- a dependency is neither selected nor merged, or comes in a
+#             later milestone.
 set -euo pipefail
-prs=$1 base=$2
+prs=$1 base=$2 merged=${3:-/dev/null}
 sel=$(mktemp); trap 'rm -f "$sel"' EXIT
 
 # number milestone base-branch head-branch head-sha deps(comma)
@@ -48,6 +51,19 @@ closure() {
 	printf '%s\n' $out | sort -un | tr '\n' ' '
 }
 
+# Why an open pull request is not selected, or that it is not open at all:
+# closed without merging when MERGED was given, since it would list it.
+unselected() {
+	local gone="not open"
+	[ "$merged" = /dev/null ] || gone="closed without merging"
+	jq -r --argjson n "$1" --arg gone "$gone" '
+	  [ .[] | select(.number == $n) ][0]
+	  | if . == null then $gone
+	    elif .isDraft then "a draft"
+	    elif .milestone == null then "without a milestone"
+	    else "based on \(.baseRefName), which no selected pull request owns" end' "$prs"
+}
+
 declare -A emitted
 emit() {
 	local n=$1 d reason="" mode commits=""
@@ -55,7 +71,8 @@ emit() {
 	emitted[$n]=1
 	for d in ${deps[$n]//,/ }; do
 		if [ -z "${ms[$d]:-}" ]; then
-			reason="depends on #$d, which is not selected (draft, merged, closed or no milestone)"
+			grep -qx "$d" "$merged" && continue
+			reason="depends on #$d, which is $(unselected "$d")"
 			break
 		fi
 		if [ "$(printf '%s\n%s\n' "${ms[$d]}" "${ms[$n]}" | sort -V | tail -1)" != "${ms[$n]}" ]; then

@@ -18,7 +18,8 @@ pull request without a milestone stays out until that changes.
 
 By milestone, then by number, each pull request after the ones it depends on.
 Its dependencies are its `Depends-on: #N` lines and, when it is based on
-another pull request's branch, that pull request.
+another pull request's branch, that pull request. A dependency already merged
+upstream is met: its changes are in `main`.
 
 Each pull request is merged as it stands, unless its branch carries copies of
 a dependency that has since changed: then only its own commits are

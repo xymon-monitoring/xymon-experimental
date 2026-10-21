@@ -111,7 +111,11 @@ jobs:
             [ "$busy" = 0 ] || continue
             [ -n "$num" ] || continue
             marker="<!-- lanes $SHA -->"
-            if gh issue view "$num" -R "$REPO" --json comments -q '.comments[].body' | grep -qF "$marker"; then
+            # Read in full, then searched: grep -q stops at the marker, and gh
+            # still writing the comments after it dies of SIGPIPE, which
+            # pipefail would take for "no marker" -- and post the report again.
+            comments=$(gh issue view "$num" -R "$REPO" --json comments -q '.comments[].body')
+            if grep -qF "$marker" <<< "$comments"; then
               continue
             fi
             : > all.tsv

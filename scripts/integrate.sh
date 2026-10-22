@@ -3,7 +3,8 @@
 # current HEAD and write report.tsv beside PLAN.
 #
 # PLAN is select.sh's output. MERGED_PRS lists, one per line, the numbers of
-# pull requests already merged upstream, which satisfy a glue patch's Needs.
+# pull requests already merged upstream, which satisfy a glue patch's Needs
+# and a pull request's dependency alike.
 #
 # Each PR is merged, or its own commits cherry-picked, with rerere resolving
 # the conflicts it has seen before, and a file the PR deletes deleted even
@@ -82,7 +83,7 @@ while IFS=$'\t' read -r n m mode head deps commits; do
 		out[$n]=1; printf 'pr\t%s\tskipped\t%s\n' "$n" "$commits" >> "$report"; continue
 	fi
 	missing=""
-	for d in ${deps//,/ }; do [ -n "${in[$d]:-}" ] || missing="$missing #$d"; done
+	for d in ${deps//,/ }; do [ -n "${in[$d]:-}" ] || grep -qx "$d" "$merged" || missing="$missing #$d"; done
 	if [ -n "$missing" ]; then
 		out[$n]=1; printf 'pr\t%s\tskipped\tneeds%s, left out of this build\n' "$n" "$missing" >> "$report"; continue
 	fi

@@ -77,7 +77,7 @@ jobs:
               --json databaseId,status,headSha \
               -q ".[] | select(.status != \"completed\" and .headSha != \"$SHA\") | .databaseId" \
               | while read -r old; do gh run cancel "$old" -R "$REPO" || true; done
-            for f in alpine archlinux centos7 debian amazonlinux freebsd netbsd openbsd opensuse rockylinux almalinux fedora oraclelinux ubuntu; do
+            for f in alpine archlinux centos7 debian amazonlinux freebsd netbsd openbsd opensuse rockylinux almalinux fedora oraclelinux ubuntu solaris; do
               gh workflow run pipeline-select-run-lanes.yml -R "$REPO" --ref "experimental/$m" \
                 -f family="$f" -f arch=amd64 -f variant=server -f verify_depth=test
             done

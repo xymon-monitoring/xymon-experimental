@@ -1,6 +1,6 @@
 name: experimental promote
 
-# Moves experimental/<milestone> to candidate/<milestone> once the build and
+# Moves experimental/<milestone> to the candidate/<milestone> commit once the build and
 # tests workflows have both passed on it; a candidate that fails moves nothing,
 # so the branch keeps the last build that passed. When the newest milestone
 # moves, the lanes are started on it, and those still running for an earlier

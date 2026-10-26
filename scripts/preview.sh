@@ -10,6 +10,8 @@
 #
 # Writes to OUTDIR:
 #   xymon-VERSION.tar.gz (+ .sha256)  made as the release workflow makes one
+#   xymon-VERSION-base.tar.gz (+ .sha256)  the same main without the pull
+#                                     requests: the "before" to compare with
 #   prs.tsv                           "N<TAB>head" of each pull request in it
 #   notes.md                          the release notes
 #   commit                            the stamped commit, to tag
@@ -29,24 +31,30 @@ case "$(git log -1 --format=%s "$head")" in
 esac
 base=$(git merge-base "$src" "$main")
 
-# The version, as build/dorelease.sh stamps it. Dated as the tree under it, so
-# the same milestone commit always gives the same stamped commit and tarball.
-git checkout -q --detach "$src"
-export GIT_AUTHOR_DATE=$(git log -1 --format=%cI "$src") GIT_COMMITTER_DATE=$(git log -1 --format=%cI "$src")
+# Stamp a tree with a version, as build/dorelease.sh does, and pack it as
+# workflow-release.yaml does. The commit is dated as the tree under it, so the
+# same tree always gives the same commit and the same tarball bytes.
 export GIT_AUTHOR_NAME=xymon-experimental GIT_AUTHOR_EMAIL=xymon-experimental@users.noreply.github.com
 export GIT_COMMITTER_NAME=xymon-experimental GIT_COMMITTER_EMAIL=xymon-experimental@users.noreply.github.com
-sed -e "s/^#define VERSION \".*\"\$/#define VERSION \"$version\"/" include/version.h > include/version.h.new
-mv include/version.h.new include/version.h
-grep -qxF "#define VERSION \"$version\"" include/version.h || {
-	echo "no '#define VERSION' line to stamp in include/version.h" >&2; exit 1; }
-git commit -q -m "preview: Xymon $version" -m "Built from experimental/$m at ${head:0:9}, without its CI overlay." include/version.h
-stamped=$(git rev-parse HEAD)
-echo "$stamped" > "$out/commit"
+stamp_and_pack() {	# TREE VERSION WHAT -- prints the stamped commit
+	local tree=$1 v=$2 what=$3 tarball="xymon-$2.tar.gz"
+	git checkout -q --detach "$tree"
+	sed -e "s/^#define VERSION \".*\"\$/#define VERSION \"$v\"/" include/version.h > include/version.h.new
+	mv include/version.h.new include/version.h
+	grep -qxF "#define VERSION \"$v\"" include/version.h || {
+		echo "no '#define VERSION' line to stamp in include/version.h" >&2; exit 1; }
+	GIT_AUTHOR_DATE=$(git log -1 --format=%cI "$tree") GIT_COMMITTER_DATE=$(git log -1 --format=%cI "$tree") \
+		git commit -q -m "preview: Xymon $v" -m "$what" include/version.h
+	git -c tar.umask=0022 archive --format=tar --prefix="xymon-$v/" HEAD | gzip -n -9 > "$out/$tarball"
+	(cd "$out" && { sha256sum "$tarball" 2>/dev/null || shasum -a 256 "$tarball"; } > "$tarball.sha256")
+	git rev-parse HEAD
+}
 
-# The tarball, as workflow-release.yaml makes one: same bytes for the same commit.
-tarball="xymon-$version.tar.gz"
-git -c tar.umask=0022 archive --format=tar --prefix="xymon-$version/" "$stamped" | gzip -n -9 > "$out/$tarball"
-(cd "$out" && { sha256sum "$tarball" 2>/dev/null || shasum -a 256 "$tarball"; } > "$tarball.sha256")
+stamped=$(stamp_and_pack "$src" "$version" "Built from experimental/$m at ${head:0:9}, without its CI overlay.")
+echo "$stamped" > "$out/commit"
+# The "before": main where the milestone starts, without any of its pull
+# requests, so a tester can run the two side by side and see what they change.
+stamp_and_pack "$base" "$version-base" "xymon main at ${base:0:9}: preview$n without its pull requests." > /dev/null
 
 # What is in it: one "experimental: merge #N" commit per pull request, its head
 # the merge's second parent or, when its own commits were cherry-picked, the
@@ -69,6 +77,8 @@ glue=$(git log --reverse --format=%s "$base..$src" | sed -n 's/^experimental glu
 	echo "**Not a release.** Xymon $m as it would be if the pull requests below merged as they stand today. Most of them are not reviewed yet: this is for testing, not for production."
 	echo
 	echo "Built from xymon \`main\` at [\`${base:0:9}\`](https://github.com/$repo/commit/$base). \`xymon --version\` says \`$version\`."
+	echo
+	echo "To see what the pull requests change, run it beside \`xymon-$version-base.tar.gz\`: that same \`main\` without them, \`$version-base\`."
 	echo
 	echo "| PR | | State |"
 	echo "|---|---|---|"

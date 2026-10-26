@@ -34,7 +34,9 @@ A preview is a milestone frozen for testers: `experimental/<milestone>` as it
 stands, without the CI, with `xymon --version` saying `<milestone>-preview<N>`.
 The `experimental preview` workflow, run by hand for a milestone, tags it
 `preview-<milestone>-<N>`, makes its source tarball as xymon's own releases
-are made, and drafts a pre-release here that lists each pull request in it,
+are made, with a second one of the same `main` without the pull requests
+(`<milestone>-preview<N>-base`) to run beside it and see what they change,
+and drafts a pre-release here that lists each pull request in it,
 reviewed or not, and what changed since the preview before. It starts the
 lanes on the same commit; publish the draft once they pass.
 

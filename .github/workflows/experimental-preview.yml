@@ -82,20 +82,29 @@ jobs:
           v="$M-preview$n"
           gh release create "preview-$M-$n" -R "$REPO" --draft --prerelease --verify-tag \
             --title "Xymon $v (unreviewed pull requests)" --notes-file ../out/notes.md \
-            "../out/xymon-$v.tar.gz" "../out/xymon-$v.tar.gz.sha256" ../out/prs.tsv
+            "../out/xymon-$v.tar.gz" "../out/xymon-$v.tar.gz.sha256" \
+            "../out/xymon-$v-base.tar.gz" "../out/xymon-$v-base.tar.gz.sha256" ../out/prs.tsv
 
           # The lanes, on the commit the preview was made from: the same code
-          # with the CI on top. Same families as experimental-promote.yml.
-          for f in alpine archlinux centos7 debian amazonlinux freebsd netbsd openbsd opensuse rockylinux almalinux fedora oraclelinux ubuntu solaris; do
+          # with the CI on top. Same families as experimental-promote.yml. Not
+          # again for a commit that has them already, as when a draft is
+          # deleted and made again.
+          ran=$(gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml --branch "experimental/$M" -L 100 \
+                  --json headSha -q "[.[] | select(.headSha == \"$head\")] | length")
+          if [ "$ran" -gt 0 ]; then
+            echo "Lanes already ran or run on ${head:0:9} ($ran runs): not starting them again." >> "$GITHUB_STEP_SUMMARY"
+          else
+            for f in alpine archlinux centos7 debian amazonlinux freebsd netbsd openbsd opensuse rockylinux almalinux fedora oraclelinux ubuntu solaris; do
+              gh workflow run pipeline-select-run-lanes.yml -R "$REPO" --ref "experimental/$M" \
+                -f family="$f" -f arch=amd64 -f variant=server -f verify_depth=test
+            done
             gh workflow run pipeline-select-run-lanes.yml -R "$REPO" --ref "experimental/$M" \
-              -f family="$f" -f arch=amd64 -f variant=server -f verify_depth=test
-          done
-          gh workflow run pipeline-select-run-lanes.yml -R "$REPO" --ref "experimental/$M" \
-            -f family=macos -f arch=all -f variant=server -f verify_depth=test
+              -f family=macos -f arch=all -f variant=server -f verify_depth=test
+          fi
 
           {
             echo "Draft pre-release **preview-$M-$n** ($v), from experimental/$M at \`${head:0:9}\`."
             echo
-            echo "Lanes started on experimental/$M; their results come as a comment on the status issue."
+            echo "The lanes on experimental/$M at that commit report on the status issue."
             echo "Publish the draft once they pass: \`gh release edit preview-$M-$n -R $REPO --draft=false\`."
           } >> "$GITHUB_STEP_SUMMARY"

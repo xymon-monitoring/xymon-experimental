@@ -70,12 +70,14 @@ jobs:
 
           newest=$(gh api "repos/$REPO/branches" --paginate -q '.[].name' | sed -n 's|^candidate/||p' | sort -V | tail -1)
           if [ "$m" = "$newest" ]; then
-            # Lanes still running for an earlier commit test code that is gone,
-            # and their macOS jobs hold the few macOS runners the organisation
-            # gets at once: cancel them before starting the new ones.
+            # Lanes still running for an earlier commit of this branch test code
+            # that is gone, and their macOS jobs hold the few macOS runners the
+            # organisation gets at once: cancel them before starting the new
+            # ones. Only this branch's: a preview's lanes run on an older
+            # milestone's branch (experimental-preview.yml).
             gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml -L 100 \
-              --json databaseId,status,headSha \
-              -q ".[] | select(.status != \"completed\" and .headSha != \"$SHA\") | .databaseId" \
+              --json databaseId,status,headSha,headBranch \
+              -q ".[] | select(.status != \"completed\" and .headSha != \"$SHA\" and .headBranch == \"experimental/$m\") | .databaseId" \
               | while read -r old; do gh run cancel "$old" -R "$REPO" || true; done
             for f in alpine archlinux centos7 debian amazonlinux freebsd netbsd openbsd opensuse rockylinux almalinux fedora oraclelinux ubuntu solaris; do
               gh workflow run pipeline-select-run-lanes.yml -R "$REPO" --ref "experimental/$m" \

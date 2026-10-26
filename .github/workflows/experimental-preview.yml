@@ -1,0 +1,101 @@
+name: experimental preview
+
+# Makes the next preview of a milestone, by hand: experimental/<milestone> as
+# it stands, without its CI overlay, with include/version.h saying
+# <milestone>-preview<N>. It is tagged preview-<milestone>-<N>, given a source
+# tarball made as xymon's release workflow makes one, and published as a DRAFT
+# pre-release listing the pull requests in it -- most of them unreviewed. The
+# lanes are started on the same commit; publish the draft once they pass.
+#
+# A preview never changes. When the pull requests in it change enough to be
+# worth testing again, run this again for preview N+1; its notes say what
+# changed since N.
+#
+# Runs from main only (workflow_dispatch from the default branch), and runs no
+# pull-request code: scripts/preview.sh reads the milestone with git and gh.
+
+on:
+  workflow_dispatch:
+    inputs:
+      milestone:
+        description: Milestone to preview, e.g. 4.3.31
+        required: true
+
+permissions:
+  contents: write   # the draft release
+  actions: write    # starting the lanes
+
+concurrency:
+  group: experimental-preview-${{ inputs.milestone }}
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    runs-on: ubuntu-24.04
+    environment: publish
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@v7
+        with:
+          path: experimental
+
+      - name: Make, tag and draft the preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_KEY: ${{ secrets.EXPERIMENTAL_DEPLOY_KEY }}
+          REPO: ${{ github.repository }}
+          M: ${{ inputs.milestone }}
+        run: |
+          set -euo pipefail
+          [[ "$M" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Milestone '$M' is not X.Y.Z" >&2; exit 1; }
+          # experimental/<m> moves only once build and tests passed on it
+          # (experimental-promote.yml), so what is previewed has passed both.
+          head=$(gh api "repos/$REPO/git/ref/heads/experimental/$M" -q .object.sha)
+          last=$(gh api "repos/$REPO/git/matching-refs/tags/preview-$M-" -q '.[].ref' \
+                   | sed "s|^refs/tags/preview-$M-||" | grep -x '[0-9][0-9]*' | sort -n | tail -1 || true)
+          n=$(( ${last:-0} + 1 ))
+
+          git init -q xymon && cd xymon
+          git fetch -q "https://github.com/$REPO" "experimental/$M:refs/remotes/exp"
+          git fetch -q https://github.com/xymon-monitoring/xymon main:refs/remotes/main
+          [ "$(git rev-parse refs/remotes/exp)" = "$head" ]
+
+          mkdir -p ../prev
+          if [ -n "$last" ]; then
+            # Nothing to preview again if the tree is the one the last preview stamped.
+            git fetch -q "https://github.com/$REPO" "refs/tags/preview-$M-$last:refs/tags/prev"
+            if [ "$(git rev-parse prev^)" = "$(git rev-parse "$head^")" ]; then
+              echo "experimental/$M is what preview-$M-$last was made from: nothing new." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            gh release download "preview-$M-$last" -R "$REPO" -p prs.tsv -D ../prev || true
+          fi
+
+          bash ../experimental/scripts/preview.sh "$M" "$n" "$head" refs/remotes/main ../out ../prev/prs.tsv
+
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git push -q "git@github.com:$REPO.git" "$(cat ../out/commit):refs/tags/preview-$M-$n"
+
+          v="$M-preview$n"
+          gh release create "preview-$M-$n" -R "$REPO" --draft --prerelease --verify-tag \
+            --title "Xymon $v (unreviewed pull requests)" --notes-file ../out/notes.md \
+            "../out/xymon-$v.tar.gz" "../out/xymon-$v.tar.gz.sha256" ../out/prs.tsv
+
+          # The lanes, on the commit the preview was made from: the same code
+          # with the CI on top. Same families as experimental-promote.yml.
+          for f in alpine archlinux centos7 debian amazonlinux freebsd netbsd openbsd opensuse rockylinux almalinux fedora oraclelinux ubuntu solaris; do
+            gh workflow run pipeline-select-run-lanes.yml -R "$REPO" --ref "experimental/$M" \
+              -f family="$f" -f arch=amd64 -f variant=server -f verify_depth=test
+          done
+          gh workflow run pipeline-select-run-lanes.yml -R "$REPO" --ref "experimental/$M" \
+            -f family=macos -f arch=all -f variant=server -f verify_depth=test
+
+          {
+            echo "Draft pre-release **preview-$M-$n** ($v), from experimental/$M at \`${head:0:9}\`."
+            echo
+            echo "Lanes started on experimental/$M; their results come as a comment on the status issue."
+            echo "Publish the draft once they pass: \`gh release edit preview-$M-$n -R $REPO --draft=false\`."
+          } >> "$GITHUB_STEP_SUMMARY"

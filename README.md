@@ -28,6 +28,25 @@ pre-built. It is `main` plus open pull requests nobody has reviewed yet: for
 testing, not production. The `ci/` and `.github/` directories are the CI added
 on top; a build does not use them.
 
+## Previews
+
+A preview is a milestone frozen for testers: `experimental/<milestone>` as it
+stands, without the CI, with `xymon --version` saying `<milestone>-preview<N>`.
+The `experimental preview` workflow, run by hand for a milestone, tags it
+`preview-<milestone>-<N>`, makes its source tarball as xymon's own releases
+are made, and drafts a pre-release here that lists each pull request in it,
+reviewed or not, and what changed since the preview before. It starts the
+lanes on the same commit; publish the draft once they pass.
+
+A preview never changes. A pull request merged upstream as it was needs no new
+one: the code is the same, only reviewed now. Run it again when the pull
+requests in it have changed enough to be worth testing again. Testers report
+on the pull request a problem is about, naming the preview: that is evidence
+its review can use.
+
+A preview is not a release candidate. One of those is cut in xymon itself,
+once the milestone's pull requests are reviewed and merged.
+
 ## In what order
 
 By milestone, then by number, each pull request after the ones it depends on.

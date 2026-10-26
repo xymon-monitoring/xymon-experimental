@@ -1,7 +1,7 @@
 name: experimental build
 
 # Integrates the open, non-draft pull requests of xymon-monitoring/xymon that
-# carry a milestone, in milestone order, on top of main. See README.md.
+# carry a milestone, in milestone order, on top of main. See docs/how-it-works.md.
 #
 # The integrate job handles pull-request code only through git, with a token
 # that can only read. The publish job runs no pull-request code: it pushes the

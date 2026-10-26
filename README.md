@@ -14,6 +14,20 @@ Every pull request there that is open, not a draft, has a milestone, and is
 based on `main` or on the branch of another such pull request. A draft or a
 pull request without a milestone stays out until that changes.
 
+## Trying it
+
+Take `experimental/<milestone>`: the last build of that milestone that passed
+its tests. `candidate/<milestone>` is newer, and may not have. The issue
+"Experimental build: current state" lists what each milestone contains and
+what was left out.
+
+Download it as a source archive, for example
+<https://github.com/xymon-monitoring/xymon-experimental/archive/refs/heads/experimental/4.3.33.tar.gz>,
+and build it as any Xymon source (`./configure --server`, `make`). Nothing is
+pre-built. It is `main` plus open pull requests nobody has reviewed yet: for
+testing, not production. The `ci/` and `.github/` directories are the CI added
+on top; a build does not use them.
+
 ## In what order
 
 By milestone, then by number, each pull request after the ones it depends on.

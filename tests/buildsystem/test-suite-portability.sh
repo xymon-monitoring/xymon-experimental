@@ -390,7 +390,7 @@ probe="$work/probe.sh"
 } >"$probe"
 probe_pattern=$(IFS='|'; printf '%s' "${__rule_patterns[*]}")
 hits=$(grep -cE "$probe_pattern" "$probe")
-assert_equal "12" "$hits" "the rule patterns no longer match the constructs they are meant to catch"
+assert_equal "13" "$hits" "the rule patterns no longer match the constructs they are meant to catch"
 
 # The cleanup-function rule the same way: a function that kills and does not
 # wait is reported, one that waits or uses stop_process is not.

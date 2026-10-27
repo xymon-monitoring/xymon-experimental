@@ -184,6 +184,9 @@ jobs:
     needs: [check, integrate]
     runs-on: ubuntu-24.04
     environment: publish
+    permissions:
+      contents: read
+      actions: write   # cancelling lanes on code a candidate replaces
     steps:
       - name: Fetch the result
         uses: actions/download-artifact@v8
@@ -218,6 +221,35 @@ jobs:
             refs="$refs +refs/c/$m:refs/heads/candidate/$m"
           done
           git push -q git@github.com:${{ github.repository }}.git $refs
+
+      # The newest milestone's lanes test experimental/<m>. Once a candidate
+      # with different code is pushed, they test code about to be replaced,
+      # and hold runners the candidate's build and tests then queue for: cancel
+      # them now rather than at promotion. Not when the code is the same (a
+      # manual rebuild), and never an older milestone's (a preview's lanes).
+      # Should the candidate fail, experimental/<m> has no lane results until
+      # a build passes; the lanes report waits for that (experimental-lanes.yml).
+      - name: Cancel lanes on code a candidate replaces
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cd work
+          m=$(git for-each-ref --format='%(refname:lstrip=2)' refs/c/ | sort -V | tail -1)
+          old=$(gh api "repos/$REPO/branches/experimental%2F$m" -q .commit.sha 2>/dev/null) || exit 0
+          git fetch -q "https://github.com/$REPO" "experimental/$m"
+          if [ "$(git rev-parse 'FETCH_HEAD^{tree}')" = "$(git rev-parse "refs/c/$m^{tree}")" ]; then
+            echo "candidate/$m has the same code as experimental/$m: its lanes go on" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml -L 100 \
+            --json databaseId,status,headSha,headBranch \
+            -q ".[] | select(.status != \"completed\" and .headSha == \"$old\" and .headBranch == \"experimental/$m\") | .databaseId" \
+            | while read -r id; do
+                gh run cancel "$id" -R "$REPO" || true
+                echo "cancelled lane run $id on experimental/$m (${old:0:9})" >> "$GITHUB_STEP_SUMMARY"
+              done
 
       - name: Remember these inputs as built
         run: echo "${{ needs.check.outputs.key }}" > inputs.txt

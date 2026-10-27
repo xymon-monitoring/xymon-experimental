@@ -85,8 +85,18 @@ jobs:
           num=$(gh issue list -R "$REPO" --state open --search "in:title \"$title\"" --json number,title \
                   -q ".[] | select(.title == \"$title\") | .number" | head -1)
 
-          gh api "repos/$REPO/branches" --paginate -q '.[] | select(.name | startswith("experimental/")) | "\(.name) \(.commit.sha)"' \
+          branches=$(gh api "repos/$REPO/branches" --paginate -q '.[] | "\(.name) \(.commit.sha)"')
+          newest=$(sed -n 's|^experimental/\([^ ]*\) .*|\1|p' <<< "$branches" | sort -V | tail -1)
+          grep '^experimental/' <<< "$branches" \
           | while read -r BRANCH SHA; do
+            # The experimental build cancels the newest milestone's lanes once a
+            # candidate with other code is pushed: until that candidate is
+            # promoted, those cancels are not results.
+            if [ "$BRANCH" = "experimental/$newest" ] \
+               && [ "$(awk -v b="candidate/$newest" '$1 == b { print $2 }' <<< "$branches")" != "$SHA" ]; then
+              echo "$BRANCH ${SHA:0:9}: a candidate replacing it is under test; not reported" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
             runs=$(gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml --commit "$SHA" -L 100 \
                      --json databaseId,status,attempt -q '.[] | "\(.databaseId) \(.status) \(.attempt)"')
             [ -n "$runs" ] || continue

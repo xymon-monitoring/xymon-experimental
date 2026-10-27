@@ -97,8 +97,12 @@ a red run in the list, and GitHub's failure email to whoever last edited the
 schedule.
 
 The issue "Experimental build: current state" is rewritten by every run with
-the latest report, what is left out at the top. When what is left out
-changes, a comment there mentions the maintainer.
+the latest report, what is left out at the top and the "Lanes" block, written
+by `experimental lanes`, carried over. The body is the current state; its
+edit history keeps the earlier ones. A comment is written only for what
+someone has to act on: when something is left out and that set changed, one
+comment mentions the maintainer. Nothing being left out any more is said by
+the body alone.
 
 A glue patch whose change is already in main -- the pull requests it joins
 have merged with it -- is reported as obsolete, a notice rather than a
@@ -115,9 +119,19 @@ token may do. A lane GitHub cancelled because no runner
 took it -- macOS arm64 runners are short -- is run again, once, when that is
 the only kind of miss in its run; a lane that failed is not, since running it
 until it passes would hide the intermittent problems the lanes exist to find.
-Once every lane run for the branch's current commit has finished, one comment
-on the status issue gives each lane's result, and mentions the maintainer when
-one failed or stayed cancelled.
+A lane run has finished when each of its jobs has a result; the run's own
+status is not waited for, since GitHub can leave it "in progress" long after
+the last job ended. Once every lane run for the branch's current commit has
+finished, the "Lanes" block of the status issue's body gets the milestone's
+row: the commit, how many lanes passed, each lane that did not by name with
+its result, how many passed only on a rerun, and when it was looked at, linked
+to the runs. While a newer commit's lanes run, or a candidate replacing the
+newest milestone is under test, the last finished result stays in the row.
+A comment is written only when a commit's lanes finished with one not passed,
+once per commit, and it mentions the maintainer; a commit whose lanes all
+passed changes the body and nothing else. The workflow's `dry_run` input
+prints the block and any comment on the run's summary instead of writing
+them.
 
 ## When it runs
 

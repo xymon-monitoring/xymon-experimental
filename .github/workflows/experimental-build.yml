@@ -260,10 +260,12 @@ jobs:
           path: inputs.txt
           key: ${{ needs.check.outputs.key }}
 
-  # The report, as one issue rewritten by every run; a comment mentions the
-  # maintainer when what is left out changes. Then the run fails if anything
-  # was left out, so the run list shows it and GitHub emails whoever last
-  # edited the schedule. The branches are published either way.
+  # The report, as one issue rewritten by every run; the "Lanes" block that
+  # experimental-lanes.yml writes into it is carried over unchanged. The body
+  # is the current state; a comment is written only when something is left
+  # out and that set changed, and it mentions the maintainer. Then the run
+  # fails if anything was left out, so the run list shows it and GitHub emails
+  # whoever last edited the schedule. The branches are published either way.
   report:
     needs: [integrate, publish]
     if: always() && needs.integrate.result == 'success'
@@ -287,10 +289,15 @@ jobs:
           title="Experimental build: current state"
           num=$(gh issue list -R "$REPO" --state open --search "in:title \"$title\"" --json number,title \
                   -q ".[] | select(.title == \"$title\") | .number" | head -1)
-          old=""
+          old="" lanes=""
           if [ -n "$num" ]; then
-            old=$(gh issue view "$num" -R "$REPO" --json body -q .body \
-                    | sed -n '/^<!-- left-out$/,/^-->$/p' | sed '1d;$d')
+            body=$(gh issue view "$num" -R "$REPO" --json body -q .body)
+            old=$(sed -n '/^<!-- left-out$/,/^-->$/p' <<< "$body" | sed '1d;$d')
+            lanes=$(sed -n '/^<!-- lanes -->$/,/^<!-- \/lanes -->$/p' <<< "$body")
+          fi
+          if [ -z "$lanes" ]; then
+            lanes=$(printf '%s\n' "<!-- lanes -->" "## Lanes" "" \
+              "No lane result yet: the \`experimental lanes\` workflow writes this block." "<!-- /lanes -->")
           fi
           new=$(sort left-out.txt)
           {
@@ -304,6 +311,8 @@ jobs:
               echo "**Nothing left out.**"
             fi
             echo
+            printf '%s\n' "$lanes"
+            echo
             cat EXPERIMENTAL.md
             echo
             echo "<!-- left-out"
@@ -315,11 +324,13 @@ jobs:
           else
             gh issue edit "$num" -R "$REPO" --body-file body.md > /dev/null
           fi
-          if [ "$new" != "$old" ]; then
+          # The body says when nothing is left out any more; a comment is for
+          # what someone has to act on.
+          if [ -s left-out.txt ] && [ "$new" != "$old" ]; then
             {
               echo "@$NOTIFY what this build leaves out has changed ([run]($RUN_URL))."
               echo
-              if [ -s left-out.txt ]; then sed 's/^/- /' left-out.txt; else echo "Nothing is left out now."; fi
+              sed 's/^/- /' left-out.txt
             } > comment.md
             gh issue comment "$num" -R "$REPO" --body-file comment.md > /dev/null
           fi

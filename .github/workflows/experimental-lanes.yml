@@ -15,9 +15,14 @@ name: experimental lanes
 #     intermittent problems the lanes are there to find. GitHub reruns a
 #     single job only once its whole run has finished, and one at a time, so
 #     a run that mixes a failure with a capacity cancel is reported as it is;
-#   - once every lane run for the branch's current commit has finished, one
-#     comment on the status issue gives each lane's result, and mentions the
-#     maintainer when one failed or stayed cancelled.
+#   - once every lane run for the branch's current commit has finished, the
+#     "Lanes" block of the status issue's body gets one row for the milestone:
+#     the commit, how many lanes passed, and each lane that did not, by name.
+#     The body is the current state; a comment is written only when a commit's
+#     lanes finished with one not passed, once per commit, and it mentions the
+#     maintainer. A lane run is finished when each of its jobs has a result:
+#     GitHub can take many minutes to mark the run itself completed, and the
+#     dispatch that asked for this look came from its last job.
 #
 # Runs from main (a schedule always does), and runs no pull-request code.
 
@@ -30,6 +35,10 @@ on:
         description: Lane run to wait for before looking (notify-lanes passes its own)
         type: string
         default: ''
+      dry_run:
+        description: Print the body block and any comment on the run's summary instead of writing them; rerun nothing
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -52,6 +61,8 @@ jobs:
       # The run that dispatched this one is still running its notify-lanes
       # job; read too early, it would count as busy and nothing would be
       # reported. It ends seconds later; ten minutes is a bound, not a wait.
+      # Its jobs are what is waited for, not the run's own status, which
+      # GitHub may leave "in progress" long after the last job ended.
       - name: Wait for the lane run that asked
         if: ${{ inputs.after_run != '' }}
         env:
@@ -59,7 +70,9 @@ jobs:
           RUN: ${{ inputs.after_run }}
         run: |
           for _ in $(seq 60); do
-            [ "$(gh run view "$RUN" -R "${{ github.repository }}" --json status -q .status)" = completed ] && exit 0
+            running=$(gh api --paginate "repos/${{ github.repository }}/actions/runs/$RUN/jobs?per_page=100" \
+                        -q '.jobs[] | select(.conclusion == null) | .id' | wc -l)
+            [ "$running" -eq 0 ] && exit 0
             sleep 10
           done
           echo "::warning::lane run $RUN had not finished after ten minutes; looking anyway"
@@ -68,82 +81,160 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          LANES_URL: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/pipeline-select-run-lanes.yml
           NOTIFY: bonomani
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
         run: |
           set -euo pipefail
-          # lane jobs of a run's latest attempt: id, conclusion, name
+          # The lanes of a run, one line each: name, result of its latest
+          # attempt ("running" while it has none), job id of that attempt,
+          # and "rerun" when an earlier attempt of the lane did not pass.
           lanes() {
-            gh api --paginate "repos/$REPO/actions/runs/$1/jobs" \
-              -q '.jobs[] | select(.name | test("build-matrix|redispatch|notify-lanes") | not)
-                  | [.id, (.conclusion // "running"), (.name | split(" / ")[0])] | @tsv'
+            gh api --paginate "repos/$REPO/actions/runs/$1/jobs?filter=all&per_page=100" \
+              -q '[.jobs[] | select(.name | test("build-matrix|redispatch|notify-lanes") | not)]
+                  | group_by(.name | split(" / ")[0]) | .[]
+                  | (max_by(.run_attempt)) as $l
+                  | [ ($l.name | split(" / ")[0]), ($l.conclusion // "running"), $l.id,
+                      (if ([.[] | select(.run_attempt < $l.run_attempt and .conclusion != "success")] | length) > 0 then "rerun" else "" end) ]
+                  | @tsv'
           }
           capacity() {
             gh api "repos/$REPO/check-runs/$1/annotations" -q '.[].message' 2>/dev/null \
               | grep -q "not acquired by Runner"
           }
+          now=$(date -u '+%Y-%m-%d %H:%M UTC')
           title="Experimental build: current state"
           num=$(gh issue list -R "$REPO" --state open --search "in:title \"$title\"" --json number,title \
                   -q ".[] | select(.title == \"$title\") | .number" | head -1)
+          body=""
+          [ -z "$num" ] || body=$(gh issue view "$num" -R "$REPO" --json body -q .body)
+          # The block as it stands: its rows are the memory of what was
+          # reported, so a commit whose misses were already commented on is
+          # not commented on again.
+          old=$(sed -n '/^<!-- lanes -->$/,/^<!-- \/lanes -->$/p' <<< "$body" | sed '1d;$d')
+          old_row() { grep -E "^\| $1 \| " <<< "$old" | head -1 || true; }
+          old_commit() { old_row "$1" | awk -F' \\| ' '{ gsub(/`/, "", $2); print $2 }'; }
 
           branches=$(gh api "repos/$REPO/branches" --paginate -q '.[] | "\(.name) \(.commit.sha)"')
           newest=$(sed -n 's|^experimental/\([^ ]*\) .*|\1|p' <<< "$branches" | sort -V | tail -1)
-          grep '^experimental/' <<< "$branches" \
-          | while read -r BRANCH SHA; do
+          : > rows.md
+          : > comments.md
+          while read -r BRANCH SHA; do
+            ms=${BRANCH#experimental/}
+            short=${SHA:0:9}
+            link="$LANES_URL?query=branch%3A$(printf '%s' "$BRANCH" | sed 's|/|%2F|g')"
+            keep=$(old_row "$ms")
             # The experimental build cancels the newest milestone's lanes once a
             # candidate with other code is pushed: until that candidate is
-            # promoted, those cancels are not results.
+            # promoted, those cancels are not results. The last result stays.
             if [ "$BRANCH" = "experimental/$newest" ] \
                && [ "$(awk -v b="candidate/$newest" '$1 == b { print $2 }' <<< "$branches")" != "$SHA" ]; then
-              echo "$BRANCH ${SHA:0:9}: a candidate replacing it is under test; not reported" >> "$GITHUB_STEP_SUMMARY"
+              echo "$BRANCH $short: a candidate replacing it is under test; not reported" >> "$GITHUB_STEP_SUMMARY"
+              [ -n "$keep" ] && echo "$keep" >> rows.md \
+                || echo "| $ms | \`$short\` | a candidate replacing it is under test | [$now]($link) |" >> rows.md
               continue
             fi
             runs=$(gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml --commit "$SHA" -L 100 \
-                     --json databaseId,status,attempt -q '.[] | "\(.databaseId) \(.status) \(.attempt)"')
-            [ -n "$runs" ] || continue
+                     --json databaseId,attempt -q '.[] | "\(.databaseId) \(.attempt)"')
+            if [ -z "$runs" ]; then
+              echo "| $ms | \`$short\` | no lane runs | [$now]($link) |" >> rows.md
+              continue
+            fi
             busy=0
-            while read -r RUN status attempt; do
-              if [ "$status" != completed ]; then busy=1; continue; fi
+            : > all.tsv
+            while read -r RUN attempt; do
+              lanes "$RUN" > run.tsv
+              if grep -q $'\trunning\t' run.tsv; then busy=1; fi
+              cat run.tsv >> all.tsv
               [ "$attempt" = 1 ] || continue
               cap=0 other=0
-              while IFS=$'\t' read -r id c name; do
+              while IFS=$'\t' read -r name c id rerun; do
                 case "$c" in
-                  success|skipped) ;;
+                  success|skipped|running) ;;
                   cancelled) if capacity "$id"; then cap=$((cap + 1)); else other=$((other + 1)); fi ;;
                   *) other=$((other + 1)) ;;
                 esac
-              done < <(lanes "$RUN")
+              done < run.tsv
               if [ "$cap" -gt 0 ] && [ "$other" -eq 0 ]; then
-                gh api -X POST "repos/$REPO/actions/runs/$RUN/rerun-failed-jobs" > /dev/null
-                echo "$BRANCH ${SHA:0:9}: reran $cap lane(s) GitHub cancelled for want of a runner (run $RUN)" >> "$GITHUB_STEP_SUMMARY"
+                [ -n "$DRY_RUN" ] || gh api -X POST "repos/$REPO/actions/runs/$RUN/rerun-failed-jobs" > /dev/null
+                echo "$BRANCH $short: reran $cap lane(s) GitHub cancelled for want of a runner (run $RUN)" >> "$GITHUB_STEP_SUMMARY"
                 busy=1
               fi
             done <<< "$runs"
-            [ "$busy" = 0 ] || continue
-            [ -n "$num" ] || continue
-            marker="<!-- lanes $SHA -->"
-            # Read in full, then searched: grep -q stops at the marker, and gh
-            # still writing the comments after it dies of SIGPIPE, which
-            # pipefail would take for "no marker" -- and post the report again.
-            comments=$(gh issue view "$num" -R "$REPO" --json comments -q '.comments[].body')
-            if grep -qF "$marker" <<< "$comments"; then
+            if [ "$busy" = 1 ]; then
+              # Lanes still running: the last finished result stays in the
+              # row, and the row says which commit is being tested.
+              if [ -n "$keep" ] && [ "$(old_commit "$ms")" != "$short" ]; then
+                echo "${keep% |} Lanes on \`$short\` running. |" >> rows.md
+              elif [ -n "$keep" ]; then
+                echo "$keep" >> rows.md
+              else
+                echo "| $ms | \`$short\` | running | [$now]($link) |" >> rows.md
+              fi
+              echo "$BRANCH $short: lanes running; not reported" >> "$GITHUB_STEP_SUMMARY"
               continue
             fi
-            : > all.tsv
-            while read -r RUN status attempt; do lanes "$RUN" >> all.tsv; done <<< "$runs"
-            sort -t$'\t' -k3,3 -u all.tsv > lanes.tsv
-            bad=$(awk -F'\t' '$2 != "success" && $2 != "skipped"' lanes.tsv | wc -l)
-            {
-              echo "$marker"
-              if [ "$bad" -gt 0 ]; then
-                echo "@$NOTIFY lanes on \`$BRANCH\` at \`${SHA:0:9}\`: $bad of $(wc -l < lanes.tsv) did not pass."
-              else
-                echo "Lanes on \`$BRANCH\` at \`${SHA:0:9}\`: all $(wc -l < lanes.tsv) passed."
-              fi
-              echo
-              echo "| lane | result |"
-              echo "|---|---|"
-              awk -F'\t' '{ r = ($2 == "success") ? "passed" : $2; printf "| %s | %s |\n", $3, r }' lanes.tsv
-            } > comment.md
-            gh issue comment "$num" -R "$REPO" --body-file comment.md > /dev/null
-            echo "$BRANCH ${SHA:0:9}: reported, $bad not passed" >> "$GITHUB_STEP_SUMMARY"
-          done
+            sort -t$'\t' -k1,1 -u all.tsv > lanes.tsv
+            total=$(wc -l < lanes.tsv | tr -d ' ')
+            awk -F'\t' '$2 != "success" && $2 != "skipped"' lanes.tsv > bad.tsv
+            bad=$(wc -l < bad.tsv | tr -d ' ')
+            reruns=$(awk -F'\t' '$2 == "success" && $4 == "rerun"' lanes.tsv | wc -l | tr -d ' ')
+            if [ "$bad" -eq 0 ]; then
+              cell="all $total passed"
+            else
+              cell="$bad of $total did not pass: $(awk -F'\t' '{ printf "%s%s (%s)", (NR > 1 ? ", " : ""), $1, $2 }' bad.tsv)"
+            fi
+            [ "$reruns" -eq 0 ] || cell="$cell; $reruns passed on a rerun"
+            echo "| $ms | \`$short\` | $cell | [$now]($link) |" >> rows.md
+            echo "$BRANCH $short: $bad of $total not passed" >> "$GITHUB_STEP_SUMMARY"
+            # One comment per commit whose lanes did not all pass. A commit the
+            # block already shows with that result was commented on when it
+            # first finished.
+            if [ "$bad" -gt 0 ] && [ "$(old_commit "$ms")" != "$short" ]; then
+              {
+                echo "@$NOTIFY lanes on \`$BRANCH\` at \`$short\`: $bad of $total did not pass ([runs]($link))."
+                echo
+                echo "| lane | result |"
+                echo "|---|---|"
+                awk -F'\t' '{ printf "| %s | %s |\n", $1, $2 }' bad.tsv
+                echo
+              } >> comments.md
+            fi
+          done < <(grep '^experimental/' <<< "$branches" | sort -V)
+
+          {
+            echo "<!-- lanes -->"
+            echo "## Lanes"
+            echo
+            echo "Written by the \`experimental lanes\` workflow once every lane run of a milestone's current commit has finished; the latest look is [this run]($RUN_URL)."
+            echo
+            echo "| milestone | commit | lanes | looked at |"
+            echo "|---|---|---|---|"
+            sort -V -r rows.md
+            echo "<!-- /lanes -->"
+          } > block.md
+
+          if [ -n "$DRY_RUN" ]; then
+            { echo; echo "## Dry run: the Lanes block"; echo; cat block.md
+              echo; echo "## Dry run: comments"; echo
+              if [ -s comments.md ]; then cat comments.md; else echo "none"; fi
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          [ -n "$num" ] || { echo "::warning::no open issue titled \"$title\"; nothing written"; exit 0; }
+          # Replace the block in the body; a body without one, from a build
+          # older than this block, gets it before the report.
+          if grep -q '^<!-- lanes -->$' <<< "$body"; then
+            awk 'FNR == NR { blk = blk $0 "\n"; next }
+                 /^<!-- lanes -->$/ { printf "%s", blk; skip = 1; next }
+                 /^<!-- \/lanes -->$/ { skip = 0; next }
+                 !skip' block.md <(printf '%s\n' "$body") > body.md
+          else
+            awk 'FNR == NR { blk = blk $0 "\n"; next }
+                 /^# Xymon experimental integration$/ && !done { printf "%s\n", blk; done = 1 }
+                 { print }
+                 END { if (!done) printf "\n%s", blk }' block.md <(printf '%s\n' "$body") > body.md
+          fi
+          gh issue edit "$num" -R "$REPO" --body-file body.md > /dev/null
+          [ -s comments.md ] && gh issue comment "$num" -R "$REPO" --body-file comments.md > /dev/null || true

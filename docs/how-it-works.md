@@ -74,9 +74,15 @@ git bundle of the milestones; and it pushes each milestone, with the CI of
 once both have passed. A candidate that fails moves nothing: the branch keeps
 the last build that passed, and comparing it with `candidate/<milestone>`
 shows whether it is behind. When the newest milestone moves, the lanes are
-started on it, and those still running for an earlier commit are cancelled:
-their macOS jobs would otherwise hold the few macOS runners GitHub gives the
-organisation at once.
+started on it.
+
+Lanes still running on the newest milestone are cancelled as soon as a
+candidate with different code is pushed: they test code about to be replaced,
+and hold the runners the candidate's `build` and `tests` would queue for. The
+lanes report skips that milestone until the candidate is promoted. If it fails,
+the milestone has no lane results until a build passes. A rebuild of the same
+code cancels nothing, and an older milestone's lanes (a preview's) are left
+alone.
 
 Pushing needs a deploy key with write access, kept as the secret
 `EXPERIMENTAL_DEPLOY_KEY` of the `publish` environment, which only workflows

@@ -138,7 +138,14 @@ jobs:
             runs=$(gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml --commit "$SHA" -L 100 \
                      --json databaseId,attempt -q '.[] | "\(.databaseId) \(.attempt)"')
             if [ -z "$runs" ]; then
-              echo "| $ms | \`$short\` | no lane runs | [$now]($link) |" >> rows.md
+              # The lanes run on the newest milestone, which holds the older
+              # ones' pull requests (experimental-promote.yml); a preview
+              # starts its own.
+              if [ "$ms" = "$newest" ]; then
+                echo "| $ms | \`$short\` | no lane runs yet | [$now]($link) |" >> rows.md
+              else
+                echo "| $ms | \`$short\` | not run on this branch: its pull requests are in $newest's lanes | [$now]($link) |" >> rows.md
+              fi
               continue
             fi
             busy=0

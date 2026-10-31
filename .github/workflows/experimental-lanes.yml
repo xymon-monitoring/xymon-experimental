@@ -22,7 +22,12 @@ name: experimental lanes
 #     lanes finished with one not passed, once per commit, and it mentions the
 #     maintainer. A lane run is finished when each of its jobs has a result:
 #     GitHub can take many minutes to mark the run itself completed, and the
-#     dispatch that asked for this look came from its last job.
+#     dispatch that asked for this look came from its last job;
+#   - once the newest milestone's lanes have all passed, its next preview is
+#     made and published (experimental-preview.yml), at most once a week and
+#     not while one of its previews is still a draft. That preview costs no
+#     lane: they already ran on its commit. An older milestone's preview needs
+#     lanes of its own and stays by hand.
 #
 # Runs from main (a schedule always does), and runs no pull-request code.
 
@@ -120,6 +125,7 @@ jobs:
           newest=$(sed -n 's|^experimental/\([^ ]*\) .*|\1|p' <<< "$branches" | sort -V | tail -1)
           : > rows.md
           : > comments.md
+          green=
           while read -r BRANCH SHA; do
             ms=${BRANCH#experimental/}
             short=${SHA:0:9}
@@ -194,6 +200,7 @@ jobs:
             fi
             [ "$reruns" -eq 0 ] || cell="$cell; $reruns passed on a rerun"
             echo "| $ms | \`$short\` | $cell | [$now]($link) |" >> rows.md
+            [ "$ms" != "$newest" ] || [ "$bad" -gt 0 ] || [ "$total" -eq 0 ] || green=$ms
             echo "$BRANCH $short: $bad of $total not passed" >> "$GITHUB_STEP_SUMMARY"
             # One comment per commit whose lanes did not all pass. A commit the
             # block already shows with that result was commented on when it
@@ -221,6 +228,26 @@ jobs:
             sort -V -r rows.md
             echo "<!-- /lanes -->"
           } > block.md
+
+          # The weekly preview of the newest milestone, once its lanes all passed.
+          # A preview's release dates from its commit, not from when it was
+          # made, so the week is counted from when the last one was published.
+          if [ -n "$green" ]; then
+            previews=$(gh release list -R "$REPO" -L 100 --json tagName,isDraft,publishedAt \
+                         -q "[.[] | select(.tagName | startswith(\"preview-$green-\"))]")
+            drafts=$(jq '[.[] | select(.isDraft)] | length' <<< "$previews")
+            last=$(jq -r '[.[] | select(.isDraft | not) | .publishedAt] | max // ""' <<< "$previews")
+            if [ "$drafts" -gt 0 ]; then
+              echo "preview of $green: one is still a draft; not making another" >> "$GITHUB_STEP_SUMMARY"
+            elif [ -n "$last" ] && [ "$(date -d "$last" +%s)" -gt "$(date -d '7 days ago' +%s)" ]; then
+              echo "preview of $green: the last one was published $last, less than a week ago" >> "$GITHUB_STEP_SUMMARY"
+            elif [ -n "$DRY_RUN" ]; then
+              echo "preview of $green: would be made and published" >> "$GITHUB_STEP_SUMMARY"
+            else
+              gh workflow run experimental-preview.yml -R "$REPO" --ref main -f milestone="$green" -f publish=true
+              echo "preview of $green: started" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
 
           if [ -n "$DRY_RUN" ]; then
             { echo; echo "## Dry run: the Lanes block"; echo; cat block.md

@@ -1,6 +1,6 @@
 name: experimental preview
 
-# Makes the next preview of a milestone, by hand: experimental/<milestone> as
+# Makes the next preview of a milestone: experimental/<milestone> as
 # it stands, without its CI overlay, with include/version.h saying
 # <milestone>-preview<N>. It is tagged preview-<milestone>-<N>, given a source
 # tarball made as xymon's release workflow makes one, and published as a DRAFT
@@ -11,6 +11,9 @@ name: experimental preview
 # worth testing again, run this again for preview N+1; its notes say what
 # changed since N.
 #
+# By hand, or once a week for the newest milestone from experimental-lanes.yml,
+# which asks for it to be published: the lanes already passed on its commit.
+#
 # Runs from main only (workflow_dispatch from the default branch), and runs no
 # pull-request code: scripts/preview.sh reads the milestone with git and gh.
 
@@ -20,6 +23,10 @@ on:
       milestone:
         description: Milestone to preview, e.g. 4.3.31
         required: true
+      publish:
+        description: Publish it at once if the lanes already passed on its commit; otherwise it stays a draft
+        type: boolean
+        default: false
 
 permissions:
   contents: write   # the draft release
@@ -45,6 +52,7 @@ jobs:
           DEPLOY_KEY: ${{ secrets.EXPERIMENTAL_DEPLOY_KEY }}
           REPO: ${{ github.repository }}
           M: ${{ inputs.milestone }}
+          PUBLISH: ${{ inputs.publish }}
         run: |
           set -euo pipefail
           [[ "$M" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Milestone '$M' is not X.Y.Z" >&2; exit 1; }
@@ -100,6 +108,19 @@ jobs:
             done
             gh workflow run pipeline-select-run-lanes.yml -R "$REPO" --ref "experimental/$M" \
               -f family=macos -f arch=all -f variant=server -f verify_depth=test
+          fi
+
+          # Published only on lanes that had all finished and passed before
+          # this preview was made; lanes started above are not results yet.
+          if [ "$PUBLISH" = true ] && [ "$ran" -gt 0 ]; then
+            notok=$(gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml --branch "experimental/$M" -L 100 \
+                      --json headSha,conclusion -q "[.[] | select(.headSha == \"$head\" and .conclusion != \"success\")] | length")
+            if [ "$notok" -eq 0 ]; then
+              gh release edit "preview-$M-$n" -R "$REPO" --draft=false > /dev/null
+              echo "Published **preview-$M-$n** ($v): the $ran lane runs on \`${head:0:9}\` passed." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "Not published: $notok lane run(s) on \`${head:0:9}\` did not pass." >> "$GITHUB_STEP_SUMMARY"
           fi
 
           {

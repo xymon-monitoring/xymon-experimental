@@ -4,9 +4,9 @@
 #
 # BRANCH_HEAD is experimental/MILESTONE: the milestone with the CI overlay as
 # its last commit. The preview is the tree under that commit, so it carries
-# none of the CI, with include/version.h saying MILESTONE-previewN: a bug
-# report then says which build it came from. MAIN is xymon's main, to find
-# where the milestone starts.
+# none of the CI, with include/version.h and the manual pages saying
+# MILESTONE-previewN: a bug report then says which build it came from. MAIN is
+# xymon's main, to find where the milestone starts.
 #
 # Writes to OUTDIR:
 #   xymon-VERSION.tar.gz (+ .sha256)  made as the release workflow makes one
@@ -17,7 +17,8 @@
 #   commit                            the stamped commit, to tag
 #
 # PREVIOUS_PRS is the prs.tsv of the preview before, for "since previewN-1".
-# Uses gh for each pull request's title and state.
+# Uses gh for each pull request's title and state, and mandoc and python3 for
+# the manual pages' HTML copies (build/makehtml.sh).
 set -euo pipefail
 
 m=$1 n=$2 head=$3 main=$4 out=$5 prev=${6:-}
@@ -31,20 +32,38 @@ case "$(git log -1 --format=%s "$head")" in
 esac
 base=$(git merge-base "$src" "$main")
 
+# The manual-page tools come from xymon's main, never from the tree being
+# stamped: that tree holds pull requests nobody has reviewed yet, and this
+# runs beside a deploy key (experimental-preview.yml runs no pull-request
+# code). They read and write paths relative to the current directory only.
+tools=$(mktemp -d)
+trap 'rm -rf "$tools"' EXIT
+for f in updmanver makehtml.sh manpage-html.py; do
+	git show "$main:build/$f" > "$tools/$f"
+	chmod +x "$tools/$f"
+done
+
 # Stamp a tree with a version, as build/dorelease.sh does, and pack it as
-# workflow-release.yaml does. The commit is dated as the tree under it, so the
-# same tree always gives the same commit and the same tarball bytes.
+# workflow-release.yaml does. The commit, and the date the manual pages carry,
+# are the tree's, so the same tree always gives the same commit and the same
+# tarball bytes. build/md5.dat is not regenerated: it lists the stock config
+# files of every version shipped, which is how an upgrade tells an untouched
+# file, and a preview is not shipped.
 export GIT_AUTHOR_NAME=xymon-experimental GIT_AUTHOR_EMAIL=xymon-experimental@users.noreply.github.com
 export GIT_COMMITTER_NAME=xymon-experimental GIT_COMMITTER_EMAIL=xymon-experimental@users.noreply.github.com
 stamp_and_pack() {	# TREE VERSION WHAT -- prints the stamped commit
 	local tree=$1 v=$2 what=$3 tarball="xymon-$2.tar.gz"
 	git checkout -q --detach "$tree"
+	SOURCE_DATE_EPOCH=$(git log -1 --format=%ct "$tree")
+	export SOURCE_DATE_EPOCH
 	sed -e "s/^#define VERSION \".*\"\$/#define VERSION \"$v\"/" include/version.h > include/version.h.new
 	mv include/version.h.new include/version.h
 	grep -qxF "#define VERSION \"$v\"" include/version.h || {
 		echo "no '#define VERSION' line to stamp in include/version.h" >&2; exit 1; }
+	"$tools/updmanver" "$v"
+	"$tools/makehtml.sh" --version "$v" > /dev/null
 	GIT_AUTHOR_DATE=$(git log -1 --format=%cI "$tree") GIT_COMMITTER_DATE=$(git log -1 --format=%cI "$tree") \
-		git commit -q -m "preview: Xymon $v" -m "$what" include/version.h
+		git commit -q -a -m "preview: Xymon $v" -m "$what"
 	git -c tar.umask=0022 archive --format=tar --prefix="xymon-$v/" HEAD | gzip -n -9 > "$out/$tarball"
 	(cd "$out" && { sha256sum "$tarball" 2>/dev/null || shasum -a 256 "$tarball"; } > "$tarball.sha256")
 	git rev-parse HEAD

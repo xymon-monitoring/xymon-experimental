@@ -23,6 +23,11 @@ name: experimental lanes
 #     maintainer. A lane run is finished when each of its jobs has a result:
 #     GitHub can take many minutes to mark the run itself completed, and the
 #     dispatch that asked for this look came from its last job;
+#   - once every lane on a milestone's current commit has passed, a draft
+#     preview made from that commit is published, whatever the milestone:
+#     experimental-preview.yml leaves a draft and starts the lanes, and this is
+#     where they finish. A lane GitHub cancelled for want of a runner is run
+#     again first (above), so the draft waits for that rerun's result;
 #   - once the newest milestone's lanes have all passed, its next preview is
 #     made and published (experimental-preview.yml), at most once a week and
 #     not while one of its previews is still a draft. That preview costs no
@@ -46,7 +51,7 @@ on:
         default: false
 
 permissions:
-  contents: read
+  contents: write   # publishing a draft preview whose lanes passed
   actions: write
   issues: write
 
@@ -201,6 +206,23 @@ jobs:
             [ "$reruns" -eq 0 ] || cell="$cell; $reruns passed on a rerun"
             echo "| $ms | \`$short\` | $cell | [$now]($link) |" >> rows.md
             [ "$ms" != "$newest" ] || [ "$bad" -gt 0 ] || [ "$total" -eq 0 ] || green=$ms
+            # A draft preview of this milestone made from this commit is
+            # published now its lanes all passed. The preview's commit and this
+            # one are the same tree with one commit on top -- the version stamp
+            # there, the CI overlay here -- so they share their parent.
+            if [ "$bad" -eq 0 ] && [ "$total" -gt 0 ]; then
+              parent=$(gh api "repos/$REPO/commits/$SHA" -q '.parents[0].sha')
+              for t in $(gh release list -R "$REPO" -L 100 --json tagName,isDraft \
+                           -q ".[] | select(.isDraft and (.tagName | startswith(\"preview-$ms-\"))) | .tagName"); do
+                [ "$(gh api "repos/$REPO/commits/$t" -q '.parents[0].sha')" = "$parent" ] || continue
+                if [ -n "$DRY_RUN" ]; then
+                  echo "$t: would be published, all $total lanes on $short passed" >> "$GITHUB_STEP_SUMMARY"
+                else
+                  gh release edit "$t" -R "$REPO" --draft=false > /dev/null
+                  echo "$t: published, all $total lanes on $short passed" >> "$GITHUB_STEP_SUMMARY"
+                fi
+              done
+            fi
             echo "$BRANCH $short: $bad of $total not passed" >> "$GITHUB_STEP_SUMMARY"
             # One comment per commit whose lanes did not all pass. A commit the
             # block already shows with that result was commented on when it

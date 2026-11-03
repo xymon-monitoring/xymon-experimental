@@ -16,6 +16,10 @@ on:
         description: Build only if the inputs changed since the last build that published, as the schedule does
         type: boolean
         default: false
+      max_milestone:
+        description: Build only up to this milestone, e.g. 4.3.31; empty builds them all
+        type: string
+        default: ''
   schedule:
     - cron: '17 0 * * *'
 
@@ -131,6 +135,7 @@ jobs:
         id: integrate
         env:
           GH_TOKEN: ${{ github.token }}
+          MAX: ${{ inputs.max_milestone }}
         run: |
           set -euo pipefail
           cd xymon
@@ -154,8 +159,26 @@ jobs:
                 if [ "$(gh pr view "$n" -R xymon-monitoring/xymon --json state -q .state)" = MERGED ]; then echo "$n"; fi
               done > ../merged.txt
           bash ../experimental/scripts/select.sh ../prs.json origin/main ../merged.txt > ../plan.tsv
+          # max_milestone stops the line there: the milestones stack, each on
+          # the one before, so the later ones are simply not built and their
+          # candidate/ and experimental/ branches keep what they had.
+          if [ -n "$MAX" ]; then
+            [[ "$MAX" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::max_milestone '$MAX' is not X.Y.Z"; exit 1; }
+            awk -F'\t' '{ print $2 }' ../plan.tsv | sort -uV | while read -r m; do
+              # if, not &&: a last milestone past MAX would end the loop on a
+              # false test, which pipefail and set -e take for a failure.
+              if [ "$(printf '%s\n%s\n' "$m" "$MAX" | sort -V | tail -1)" = "$MAX" ]; then echo "$m"; fi
+            done > ../kept.txt
+            [ -s ../kept.txt ] || { echo "::error::no milestone up to $MAX has a pull request"; exit 1; }
+            awk -F'\t' 'NR == FNR { k[$1] = 1; next } k[$2]' ../kept.txt ../plan.tsv > ../plan.kept
+            mv ../plan.kept ../plan.tsv
+          fi
           bash ../experimental/scripts/integrate.sh ../plan.tsv ../experimental/glue ../merged.txt
           bash ../experimental/scripts/report.sh ../plan.tsv ../report.tsv "$(cat ../base.sha)" "$(cat ../overlay.sha)" > ../EXPERIMENTAL.md
+          if [ -n "$MAX" ]; then
+            { printf '> **Partial build, up to %s.** Later milestones were not rebuilt: their branches, and their rows below, are from an earlier build.\n\n' "$MAX"
+              cat ../EXPERIMENTAL.md; } > ../EXPERIMENTAL.new && mv ../EXPERIMENTAL.new ../EXPERIMENTAL.md
+          fi
           cat ../EXPERIMENTAL.md >> "$GITHUB_STEP_SUMMARY"
           # One warning per pull request or glue patch left out, on the run's page.
           awk -F'\t' '($1=="pr" && ($3=="conflict"||$3=="skipped")){printf "#%s left out: %s %s\n", $2, $3, $4}
@@ -229,7 +252,10 @@ jobs:
       # manual rebuild), and never an older milestone's (a preview's lanes).
       # Should the candidate fail, experimental/<m> has no lane results until
       # a build passes; the lanes report waits for that (experimental-lanes.yml).
+      # Not on a partial build: its newest milestone is not the newest one,
+      # and its lanes may be a preview's.
       - name: Cancel lanes on code a candidate replaces
+        if: inputs.max_milestone == ''
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -251,10 +277,14 @@ jobs:
                 echo "cancelled lane run $id on experimental/$m (${old:0:9})" >> "$GITHUB_STEP_SUMMARY"
               done
 
+      # Not on a partial build: the fingerprint says the inputs were all built,
+      # and the next scheduled run would then skip the milestones this left out.
       - name: Remember these inputs as built
+        if: inputs.max_milestone == ''
         run: echo "${{ needs.check.outputs.key }}" > inputs.txt
 
       - name: Store the fingerprint
+        if: inputs.max_milestone == ''
         uses: actions/cache/save@v6
         with:
           path: inputs.txt

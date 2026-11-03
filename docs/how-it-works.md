@@ -145,6 +145,13 @@ what they test, so it waits for the next build that has something new to test.
 A manual run always builds, unless `if_changed` is set, and applies such a
 change at once.
 
+A manual run can stop at a milestone with `max_milestone` (e.g. `4.3.31`), to
+rebuild one milestone's preview without the lanes of the later ones. The
+milestones stack, so the later ones are simply not built: their `candidate/`
+and `experimental/` branches keep what they had, and the status issue says the
+build was partial. Such a run stores no hash, so the next scheduled run still
+builds them all, and it cancels no lanes.
+
 GitHub pauses a scheduled workflow after 60 days without a commit to the
 repository, and this one only gets commits when its scripts or glue change.
 Each run therefore calls GitHub's "enable workflow" for itself, which resets

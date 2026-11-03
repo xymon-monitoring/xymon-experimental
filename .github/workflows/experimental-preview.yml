@@ -46,6 +46,14 @@ jobs:
         with:
           path: experimental
 
+      # scripts/preview.sh stamps the manual pages as a release does, and
+      # build/makehtml.sh regenerates their HTML copies through mandoc and
+      # python3 -- on this same pinned ubuntu-24.04, as xymon's release prep.
+      - name: Install mandoc and python3
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mandoc python3
+
       - name: Make, tag and draft the preview
         env:
           GH_TOKEN: ${{ github.token }}

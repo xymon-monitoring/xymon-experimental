@@ -146,7 +146,6 @@ jobs:
             gh api "repos/$REPO/check-runs/$1/annotations" -q '.[].message' 2>/dev/null \
               | grep -q "not acquired by Runner"
           }
-          now=$(date -u '+%Y-%m-%d %H:%M UTC')
           title="Experimental build: current state"
           num=$(gh issue list -R "$REPO" --state open --search "in:title \"$title\"" --json number,title \
                   -q ".[] | select(.title == \"$title\") | .number" | head -1)
@@ -177,7 +176,7 @@ jobs:
                && [ "$(awk -v b="candidate/$oldest" '$1 == b { print $2 }' <<< "$branches")" != "$SHA" ]; then
               echo "$BRANCH $short: a candidate replacing it is under test; not reported" >> "$GITHUB_STEP_SUMMARY"
               [ -n "$keep" ] && echo "$keep" >> rows.md \
-                || echo "| $ms | \`$short\` | a candidate replacing it is under test | [$now]($link) |" >> rows.md
+                || echo "| $ms | \`$short\` | a candidate replacing it is under test | [none]($link) |" >> rows.md
               continue
             fi
             runs=$(gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml --commit "$SHA" -L 100 \
@@ -191,17 +190,17 @@ jobs:
               # has no lanes of its own: its pull requests are in the newest's.
               # A preview starts its own lanes.
               if [ "$ms" = "$oldest" ]; then
-                echo "| $ms | \`$short\` | no lane runs yet | [$now]($link) |" >> rows.md
+                echo "| $ms | \`$short\` | no lane runs yet | [none]($link) |" >> rows.md
               elif [ "$ms" = "$newest" ]; then
                 if [ -n "$keep" ]; then
                   # Said once: yesterday's note is replaced, not added to.
                   base=$(sed -E 's/ Weekly lanes; `[0-9a-f]+` waits for Sunday\. \|$/ |/' <<< "$keep")
                   echo "${base% |} Weekly lanes; \`$short\` waits for Sunday. |" >> rows.md
                 else
-                  echo "| $ms | \`$short\` | no lane runs yet: weekly lanes, on Sunday | [$now]($link) |" >> rows.md
+                  echo "| $ms | \`$short\` | no lane runs yet: weekly lanes, on Sunday | [none]($link) |" >> rows.md
                 fi
               else
-                echo "| $ms | \`$short\` | not run on this branch: its pull requests are in $newest's weekly lanes | [$now]($link) |" >> rows.md
+                echo "| $ms | \`$short\` | not run on this branch: its pull requests are in $newest's weekly lanes | [none]($link) |" >> rows.md
               fi
               continue
             fi
@@ -234,7 +233,7 @@ jobs:
               elif [ -n "$keep" ]; then
                 echo "$keep" >> rows.md
               else
-                echo "| $ms | \`$short\` | running | [$now]($link) |" >> rows.md
+                echo "| $ms | \`$short\` | running | [not yet]($link) |" >> rows.md
               fi
               echo "$BRANCH $short: lanes running; not reported" >> "$GITHUB_STEP_SUMMARY"
               continue
@@ -250,7 +249,14 @@ jobs:
               cell="$bad of $total did not pass: $(awk -F'\t' '{ printf "%s%s (%s)", (NR > 1 ? ", " : ""), $1, $2 }' bad.tsv)"
             fi
             [ "$reruns" -eq 0 ] || cell="$cell; $reruns passed on a rerun"
-            echo "| $ms | \`$short\` | $cell | [$now]($link) |" >> rows.md
+            # The time in the row is when the last of these lanes finished,
+            # not when this workflow looked: the block is rewritten whenever
+            # any milestone's lanes finish, so the look is often days later
+            # than the result it repeats.
+            finished=$(gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml --commit "$SHA" -L 100 \
+                         --json updatedAt -q 'map(.updatedAt) | max')
+            finished=$(date -u -d "$finished" '+%Y-%m-%d %H:%M UTC')
+            echo "| $ms | \`$short\` | $cell | [$finished]($link) |" >> rows.md
             [ "$ms" != "$newest" ] || [ "$bad" -gt 0 ] || [ "$total" -eq 0 ] || green=$ms
             # A draft preview of this milestone made from this commit is
             # published now its lanes all passed. The preview's commit and this
@@ -291,7 +297,7 @@ jobs:
             echo
             echo "Written by the \`experimental lanes\` workflow once every lane run of a milestone's current commit has finished; the latest look is [this run]($RUN_URL)."
             echo
-            echo "| milestone | commit | lanes | looked at |"
+            echo "| milestone | commit | lanes | finished |"
             echo "|---|---|---|---|"
             sort -V -r rows.md
             echo "<!-- /lanes -->"

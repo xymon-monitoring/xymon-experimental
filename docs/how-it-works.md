@@ -75,16 +75,21 @@ git bundle of the milestones; and it pushes each milestone, with the CI of
 `experimental promote` then moves `experimental/<milestone>` to a candidate
 once both have passed. A candidate that fails moves nothing: the branch keeps
 the last build that passed, and comparing it with `candidate/<milestone>`
-shows whether it is behind. When the newest milestone moves, the lanes are
-started on it.
+shows whether it is behind. When the oldest milestone moves -- the release
+being driven, which the later milestones stack on -- the lanes are started on
+it, so that release has a lane result of its own every day it changes. The
+newest milestone, whose branch holds every milestone's pull requests, gets
+its lanes once a week, on Sunday, from `experimental lanes`, and only when its
+commit has none yet. A milestone between the two has no lanes of its own. With
+one milestone open, the daily lanes are all there is.
 
-Lanes still running on the newest milestone are cancelled as soon as a
+Lanes still running on the oldest milestone are cancelled as soon as a
 candidate with different code is pushed: they test code about to be replaced,
 and hold the runners the candidate's `build` and `tests` would queue for. The
 lanes report skips that milestone until the candidate is promoted. If it fails,
 the milestone has no lane results until a build passes. A rebuild of the same
-code cancels nothing, and an older milestone's lanes (a preview's) are left
-alone.
+code cancels nothing, and another milestone's lanes (the newest's weekly
+ones, a preview's) are left alone.
 
 Pushing needs a deploy key with write access, kept as the secret
 `EXPERIMENTAL_DEPLOY_KEY` of the `publish` environment, which only workflows
@@ -129,7 +134,7 @@ row: the commit, how many lanes passed, each lane that did not by name with
 its result, how many passed only on a rerun, and when it was looked at, linked
 to the runs. While a newer commit's lanes run, or a candidate replacing the
 newest milestone is under test, the last finished result stays in the row.
-A milestone whose lanes are not started, every one but the newest, says so in its row: its pull requests are in the newest milestone's lanes. A comment is written only when a commit's lanes finished with one not passed,
+A milestone with no lanes of its own, one between the oldest and the newest, says so in its row: its pull requests are in the newest milestone's weekly lanes. The newest milestone's row keeps its last result between Sundays and names the commit waiting for the next. A comment is written only when a commit's lanes finished with one not passed,
 once per commit, and it mentions the maintainer; a commit whose lanes all
 passed changes the body and nothing else. The workflow's `dry_run` input
 prints the block and any comment on the run's summary instead of writing

@@ -245,15 +245,16 @@ jobs:
           done
           git push -q git@github.com:${{ github.repository }}.git $refs
 
-      # The newest milestone's lanes test experimental/<m>. Once a candidate
-      # with different code is pushed, they test code about to be replaced,
-      # and hold runners the candidate's build and tests then queue for: cancel
-      # them now rather than at promotion. Not when the code is the same (a
-      # manual rebuild), and never an older milestone's (a preview's lanes).
-      # Should the candidate fail, experimental/<m> has no lane results until
-      # a build passes; the lanes report waits for that (experimental-lanes.yml).
-      # Not on a partial build: its newest milestone is not the newest one,
-      # and its lanes may be a preview's.
+      # The oldest milestone's lanes run daily on experimental/<m>
+      # (experimental-promote.yml). Once a candidate with different code is
+      # pushed, they test code about to be replaced, and hold runners the
+      # candidate's build and tests then queue for: cancel them now rather than
+      # at promotion. Not when the code is the same (a manual rebuild), and
+      # never another milestone's: a preview's lanes, or the newest
+      # milestone's weekly ones, are left to finish. Should the candidate fail,
+      # experimental/<m> has no lane results until a build passes; the lanes
+      # report waits for that (experimental-lanes.yml). Not on a partial
+      # build, whose lanes may be a preview's.
       - name: Cancel lanes on code a candidate replaces
         if: inputs.max_milestone == ''
         env:
@@ -262,7 +263,7 @@ jobs:
         run: |
           set -euo pipefail
           cd work
-          m=$(git for-each-ref --format='%(refname:lstrip=2)' refs/c/ | sort -V | tail -1)
+          m=$(git for-each-ref --format='%(refname:lstrip=2)' refs/c/ | sort -V | head -1)
           old=$(gh api "repos/$REPO/branches/experimental%2F$m" -q .commit.sha 2>/dev/null) || exit 0
           git fetch -q "https://github.com/$REPO" "experimental/$m"
           if [ "$(git rev-parse 'FETCH_HEAD^{tree}')" = "$(git rev-parse "refs/c/$m^{tree}")" ]; then

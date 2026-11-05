@@ -131,8 +131,9 @@ status is not waited for, since GitHub can leave it "in progress" long after
 the last job ended. Once every lane run for the branch's current commit has
 finished, the "Lanes" block of the status issue's body gets the milestone's
 row: the commit, how many lanes passed, each lane that did not by name with
-its result, how many passed only on a rerun, and when it was looked at, linked
-to the runs. While a newer commit's lanes run, or a candidate replacing the
+its result, how many passed only on a rerun, and when the last of them
+finished, linked to the runs. A row without a result links to the runs with no
+time, since none has. While a newer commit's lanes run, or a candidate replacing the
 newest milestone is under test, the last finished result stays in the row.
 A milestone with no lanes of its own, one between the oldest and the newest, says so in its row: its pull requests are in the newest milestone's weekly lanes. The newest milestone's row keeps its last result between Sundays and names the commit waiting for the next. A comment is written only when a commit's lanes finished with one not passed,
 once per commit, and it mentions the maintainer; a commit whose lanes all

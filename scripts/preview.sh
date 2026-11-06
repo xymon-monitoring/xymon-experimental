@@ -92,6 +92,28 @@ git log --reverse --format='%H%x09%P%x09%s' "$base..$src" | while IFS=$'\t' read
 done
 glue=$(git log --reverse --format=%s "$base..$src" | sed -n 's/^experimental glue: //p')
 
+# A pull request that left the preview did so for one of three reasons, and
+# only its state on GitHub tells which: merged, so its change is now in the
+# base; closed without merging; or still open and no longer selected, because
+# its milestone moved or it stopped applying. Lines marked GONE by the awk
+# below are rewritten here; the rest pass through.
+explain_gone() {
+	while IFS= read -r line; do
+		case "$line" in
+			*" GONE")
+				pr=${line#- #}; pr=${pr% GONE}
+				state=$(gh pr view "$pr" -R "$repo" --json state -q .state 2>/dev/null) || state=
+				case "$state" in
+					MERGED) echo "- #$pr merged into main, so now in the base" ;;
+					CLOSED) echo "- #$pr closed without merging" ;;
+					OPEN) echo "- #$pr no longer selected" ;;
+					*) echo "- #$pr no longer in it; GitHub did not say why" ;;
+				esac ;;
+			*) echo "$line" ;;
+		esac
+	done
+}
+
 {
 	echo "**Not a release.** Xymon $m as it would be if the pull requests below merged as they stand today. Most of them are not reviewed yet: this is for testing, not for production."
 	echo
@@ -118,7 +140,7 @@ glue=$(git log --reverse --format=%s "$base..$src" | sed -n 's/^experimental glu
 			!($1 in old) { print "- #" $1 " added" ; next }
 			old[$1] != $2 { print "- #" $1 " updated" }
 			{ delete old[$1] }
-			END { for (p in old) print "- #" p " no longer in it" }' "$prev" "$out/prs.tsv" | sort -t'#' -k2 -n)
+			END { for (p in old) print "- #" p " GONE" }' "$prev" "$out/prs.tsv" | sort -t'#' -k2 -n | explain_gone)
 		echo "${changes:-Nothing changed in the pull requests; main moved on.}"
 	fi
 	echo

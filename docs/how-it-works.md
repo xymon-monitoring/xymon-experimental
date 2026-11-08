@@ -91,6 +91,17 @@ the milestone has no lane results until a build passes. A rebuild of the same
 code cancels nothing, and another milestone's lanes (the newest's weekly
 ones, a preview's) are left alone.
 
+A released milestone is retired by the build. Once it is closed on
+`xymon-monitoring/xymon` and no open pull request carries it any more, the
+build writes nothing for it and deletes its `candidate/<milestone>` and
+`experimental/<milestone>`; a closed milestone is one of the build's inputs,
+so closing one starts the build that retires it. Left in place, the branch
+would stay at the last pre-release build, be taken for the oldest milestone
+-- the release being driven -- and so hold the daily lanes the real one should
+have. Its preview releases stay, as the record of what was tested. A milestone
+emptied by merges alone, but still open, is not retired: it is still being
+driven.
+
 Pushing needs a deploy key with write access, kept as the secret
 `EXPERIMENTAL_DEPLOY_KEY` of the `publish` environment, which only workflows
 running from `main` can use. A workflow token cannot push commits that touch

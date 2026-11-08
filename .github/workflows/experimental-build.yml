@@ -73,6 +73,7 @@ jobs:
                   | sort_by(.[0]) | .[] | @tsv'
             git ls-remote https://github.com/xymon-monitoring/xymon refs/heads/main
             git ls-remote "https://github.com/${{ github.repository }}" refs/heads/rerere-cache
+            gh api 'repos/xymon-monitoring/xymon/milestones?state=closed&per_page=100' -q '.[].title' | sort -V
             gh api "repos/${{ github.repository }}/git/trees/${{ github.sha }}" \
               -q '.tree[] | select(.path == "glue" or .path == "scripts") | "\(.path) \(.sha)"'
           } > inputs.txt
@@ -244,6 +245,40 @@ jobs:
             refs="$refs +refs/c/$m:refs/heads/candidate/$m"
           done
           git push -q git@github.com:${{ github.repository }}.git $refs
+
+      # A milestone that was released has no open pull request any more, so
+      # the build no longer writes it, and its candidate/<m> and
+      # experimental/<m> would stay at the last pre-release build for ever.
+      # experimental-lanes.yml takes the oldest experimental/<m> for the
+      # release being driven, so a released one left behind takes the daily
+      # lanes from the milestone that is, and the README would offer code
+      # older than the release. Delete both branches once the milestone is
+      # closed on xymon-monitoring/xymon and this build wrote nothing for it.
+      # Closed only: a milestone emptied by merges alone is still being driven.
+      # Not on a partial build, which writes nothing for the milestones past
+      # max_milestone either.
+      - name: Retire the branches of a released milestone
+        if: inputs.max_milestone == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cd work
+          gh api 'repos/xymon-monitoring/xymon/milestones?state=closed&per_page=100' -q '.[].title' > ../closed.txt
+          gh api "repos/$REPO/branches" --paginate -q '.[].name' \
+            | sed -E -n 's#^(candidate|experimental)/##p' | sort -uV > ../onrepo.txt
+          refs=""
+          while read -r m <&3; do
+            git show-ref -q --verify "refs/c/$m" && continue
+            grep -qx "$m" ../closed.txt || continue
+            for b in candidate experimental; do
+              gh api "repos/$REPO/branches/$b%2F$m" -q .name >/dev/null 2>&1 && refs="$refs :refs/heads/$b/$m"
+            done
+            echo "retired $m: closed on xymon-monitoring/xymon and no pull request carries it; its branches are deleted" >> "$GITHUB_STEP_SUMMARY"
+          done 3< ../onrepo.txt
+          [ -n "$refs" ] && git push -q git@github.com:$REPO.git $refs
+          true
 
       # The oldest milestone's lanes run daily on experimental/<m>
       # (experimental-promote.yml). Once a candidate with different code is

@@ -1,0 +1,1027 @@
+          <<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>
+           * * *   Release notes for Xymon 4.3.31   * * *
+          <<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>
+
+
+This documents the important changes between Xymon releases, i.e.
+changes you should be aware of when upgrading.
+
+For a full list of changes and enhancements, please see the 
+Changes file.
+
+A pull request that needs an entry writes it in the open "(not yet
+released)" section below. See CONTRIBUTING.md; full rules in RELEASING.md.
+
+
+Changes for 4.3.32 (not yet released)
+=====================================
+
+xymond -- TLS between clients and the daemon
+--------------------------------------------
+
+Client-to-xymond messages can now travel over TLS: give xymond a certificate
+and a --tls-listen address, and point clients at "xymons://". The plaintext
+port keeps working alongside it, so clients move over one at a time. Nothing
+changes until you set it up; xymon-tls(7) is the walkthrough.
+
+xymond -- a connection limit, and no FD_SETSIZE
+-----------------------------------------------
+
+xymond now drives its connections with poll() instead of select(), so
+the number it can hold open at once is no longer fixed when it is built
+(1024 on most platforms, 256 on NetBSD, past which xymond stopped with
+"Fatal error in select"). The limit is XYMOND_MAXCONNECTIONS in
+xymonserver.cfg; unset, it is the process's open-file limit less 64. A
+connection beyond it is refused as it is accepted and logged at most
+once a minute. Nothing changes for an installation that stays below
+its old ceiling.
+
+xymonping -- IPv6 addresses are pinged
+-------------------------------------
+
+Where xymonping is the pinger (USEXYMONPING at build time, or FPING set
+to it), a host listed in hosts.cfg by an IPv6 address now gets a conn
+result: xymonping opens an ICMPv6 raw socket beside the ICMP one when
+the list holds such an address. Until now it dropped the address with
+"not an IP" and the host's conn stayed red. An IPv6 address is reported
+as it was spelled in hosts.cfg. Nothing changes for IPv4 addresses or
+for installations using fping.
+
+xymonnet -- a ping result is matched by address, not by spelling
+-----------------------------------------------------------------
+
+An IPv6 host written in hosts.cfg other than in its shortest form -- for
+example "0:0:0:0:0:0:0:1" or "2001:0db8::1" -- now gets its ping result when
+fping is the pinger with the shipped FPINGOPTS="-Ae": fping reports the
+target as "::1" or "2001:db8::1", and xymonnet matched that to the host by
+comparing the text. Such a host read as down although it answered. The
+result is now matched by address. Nothing changes for IPv4 addresses, or
+where the address was already written as fping spells it.
+
+build -- the Big Brother and Hobbit upgrade path is gone
+--------------------------------------------------------
+
+The helpers for upgrading from Big Brother, Hobbit or Xymon 4.2.x are
+removed: build/upgrade430.sh, renamevars, renametasks and
+convert-bbservices.sh, with docs/upgrade-to-430.txt, docs/Renaming-430.txt
+and docs/bb-to-xymon.html. "make" no longer prints the upgrade notice, and
+"make install" no longer runs the protocols.cfg converter.
+
+An installation still on Big Brother, Hobbit or 4.2.x upgrades to 4.3.31
+first, which still carries them, and then to this release. Packages that
+install or reference these files need to drop them; the FreeBSD port's
+post-install does.
+
+xymonnet -- https certificate name check
+----------------------------------------
+
+An https test now checks that the certificate the server returns actually
+covers the name in the URL -- the name xymonnet already sends as SNI -- not
+only its expiry and cipher strength. A certificate that does not cover the
+name turns the "sslcert" status red, with "Certificate does NOT cover
+'<name>'"; a matching one is noted "Certificate covers '<name>'" and the
+colour is unchanged.
+
+On upgrade this can turn an "sslcert" red that was green before, where the
+tested endpoint answers with a certificate for some other name. That happens
+when a host is tested at an address -- its hosts.cfg column 1, or a "=IP" in
+the URL -- that serves a default certificate for a name it does not hold. The
+red is correct: the expiry being tracked was some other certificate's. The
+check needs OpenSSL 1.0.2 or later; on an older build it is skipped and
+nothing changes.
+
+Clients -- logfetch
+-------------------
+
+The client now runs logfetch with --noexec by default (LOGFETCHOPTS in
+xymonclient.cfg), so a command in backticks in client-local.cfg is no longer
+run on a new installation. An upgrade keeps its own LOGFETCHOPTS: set it to
+"--noexec" for the safer default, or leave it "" on a client that needs such
+commands.
+
+xymond -- listening addresses
+-----------------------------
+
+xymond --listen now takes a comma-separated list of addresses, and also listens
+on 127.0.0.1 at XYMONDPORT, so the server's own client keeps reporting when a
+network interface goes away. --no-loopback listens only on the addresses given.
+Keep the server's client (xymonclient.cfg) on the same port as XYMONDPORT in
+xymonserver.cfg.
+
+xymond -- how a status arrived
+------------------------------
+
+xymond now records how each status reached it: "plaintext", the TLS version
+("TLSv1.3"), with " cert" when a verified client certificate names the host,
+or "local". The status page shows it after the sender ("Status message
+received from 192.0.2.1 over TLSv1.3, client certificate", or "... (plaintext)";
+the client-derived columns show how the client message arrived),
+and the xymondboard/xymondlog "transport" field gives it for scripts, e.g.
+to list the hosts still sending in plaintext while moving clients to TLS.
+It is information only: no status, color or alert depends on it.
+
+The client column shows it too, with the client message's sender, and the
+client data page starts with a "[transport]" section saying how the
+message came ("TLSv1.3 from 192.0.2.1"). That section is added to the page
+only; the client message xymond stores and returns is unchanged.
+
+xymonserver.cfg -- the server sends to itself over loopback
+-----------------------------------------------------------
+
+On a new server, the server's programs and its own client send to xymond over
+127.0.0.1, so it keeps reporting on itself when a network interface goes away.
+An upgrade keeps the existing configuration; to switch, set XYMSRV="127.0.0.1"
+in xymonserver.cfg and prefix the [xymonclient] command in tasks.cfg with "env
+XYMSRV=127.0.0.1". Remote clients are unchanged.
+
+
+Platforms -- IRIX, OSF1, SCO and GNU/kFreeBSD are removed
+----------------------------------------------------------
+
+The IRIX, OSF1/Tru64, SCO OpenServer/UnixWare and GNU/kFreeBSD ports are
+removed: their build targets, their client scripts, and the server's handling
+of their client reports. A client still reporting from one of these systems is
+no longer analysed or graphed -- xymond_client logs "No client backend for OS"
+-- so its cpu, disk, memory, procs and other client columns go purple. Retire
+such hosts before upgrading the server, or run xymond_client with
+--unknownclientosok to analyse their reports generically.
+
+
+Changes for 4.3.31
+==================
+
+Clients -- filesystem reporting
+-------------------------------
+
+The Linux, FreeBSD, NetBSD, OpenBSD and macOS clients now filter the
+filesystems they report instead of listing whatever df returns. Dropped by
+default: iso9660, squashfs and snap on Linux; nullfs, procfs, devfs and autofs
+on FreeBSD; kernfs, procfs, cd9660, null and ptyfs on NetBSD; kernfs, procfs
+and cd9660 on OpenBSD; hidden or read-only mounts on macOS. The BSD clients
+also pass -l to df, so remote filesystems other than nfs are no longer
+reported.
+
+A filesystem that stops being reported also stops alerting -- check that
+nothing you monitor has gone quiet. Override with XYMONCLIENT_FS_INCLUDE_TYPES
+and XYMONCLIENT_FS_EXCLUDE_TYPES, or set XYMONCLIENT_FS_DF_LOCAL_ONLY=no to
+restore remote filesystems; xymonclient.cfg has the per-platform lists.
+
+XYMONCLIENT_FS_DF_LOCAL_ONLY=no no longer risks the whole host. df stats every
+remote mount, and a dead NFS or CIFS server leaves it in a wait that SIGKILL
+does not end, so the client cycle never finished and every column went purple.
+Mount types that can block this way -- nfs, nfs4, cifs, smb3, ceph, glusterfs,
+fuse.glusterfs, lustre, afs -- now go through a separate df behind a sentinel,
+one probe at a time. A probe still unanswered after
+XYMONCLIENT_FS_REMOTE_DF_BUDGET seconds (default 30) reports those mounts
+"unavailable" and 100% full: one filesystem red instead of the host purple. The
+stuck df is left running and picked up on a later cycle through a pidfile in
+$XYMONTMP, so it clears once the server answers -- expect the alert until then.
+Keep XYMONTMP on a local filesystem. XYMONCLIENT_FS_REMOTE_HARDBLOCK_TYPES
+changes the list.
+
+The AIX client now requires AIX 7.1 or later, and keeps df off remote mounts by
+default like the others -- AIX df spells that "-T local", which 6.1 and earlier
+lack.
+
+The NetBSD client now reports inodes, sharing the filtering above. Set
+XYMONCLIENT_FS_INCLUDE_TYPES="ptyfs" to keep reporting /dev/pts.
+
+Clients -- macOS memory reporting
+---------------------------------
+
+The memory status of a macOS host now has the Actual/Virtual and Swap/Page
+rows the other clients report, so MEMACT and MEMSWAP rules in analysis.cfg
+apply to it; until now only Real/Physical was reported and those two rules
+had no effect. Actual/Virtual counts the active, wired and compressor pages;
+the inactive and speculative pages are the file cache the kernel reclaims on
+demand. Swap/Page comes from a new [swapusage] section of the client, sysctl
+vm.swapusage, which an older client does not send: the row is then absent.
+Real/Physical now counts the speculative and compressor pages as well, so
+its total matches the installed memory more closely and the figure may move
+by a percent or two.
+
+Alerting
+--------
+
+"lastchange" is now the hold-time of the colour on record, not the time of the
+last status change. It used to reset whenever a test stopped reporting, so a
+host down for two hours that came back green showed as green for 0 minutes.
+xymond_alert reads it for DURATION, so an outage that dropped out of sight also
+restarted its escalation clock. DURATION rules may therefore fire earlier on
+tests that stop reporting -- intended, but worth knowing beforehand.
+
+alerts.cfg gains FOR=N: a rule matches only once its colour has held
+continuously for N minutes. DURATION measures the age of the event and survives
+a yellow-to-red change; FOR measures the age of the current colour and resets
+on any change -- FOR is what "page only if it stays red for N minutes" wants.
+At-least-only, single-colour rules; existing configurations are unaffected.
+
+Server
+------
+
+xymond now drops a connection that has sent nothing 5 seconds after it was
+accepted, instead of keeping it for the whole --timeout; a message that is
+arriving, however slowly, still gets the full timeout. Once 256 such silent
+connections are open, it takes at most 16 more from one sender -- one IPv4
+address, or one IPv6 /64 -- and logs the refusal. Neither limit can be changed.
+Clients behind one NAT address or proxy are affected only if that many of them
+connect and stay silent at once.
+
+xymond --listen=IP:PORT now listens only on the address it names. Since 2014 it
+has bound every interface whatever address was given, so a server told to
+listen on 127.0.0.1, or on one interface of several, was reachable on all of
+them; after upgrading it is not -- check that nothing relied on the wider
+reach. The --listen=IP form, without a port, is unaffected.
+
+Two configurations that used to start now stop, because the address is finally
+honoured. A hostname in --listen is refused: it never bound that host's
+address, and xymond(8) has always asked for a dotted-quad IP. An address not
+yet assigned when xymond starts is refused too, where the fallback to every
+interface used to hide it -- start xymond after its interface comes up.
+
+Page filters
+------------
+
+The top-level page is now called "/" by every page filter: xymondboard page=,
+and the page filters of eventlog.cgi, notifications.cgi, acknowledgements.cgi
+and perfdata.cgi. Write page=^/$ to select it -- these filters are unanchored,
+so "/" alone also matches every nested page. page=^$, which used to select the
+top-level page, now matches nothing; update any filter or bookmark using it.
+
+PAGE= rules in analysis.cfg now apply only to hosts on the page they name. They
+used to apply to every host on the top-level page as well, so such a host could
+pick up another page's rules -- a PROC check for a process it does not run, for
+instance. Check that hosts on the top-level page still carry the rules you
+expect.
+
+EXPAGE= in analysis.cfg now excludes a host when any page it is listed on
+matches, not only its first page, for INODE, PAGING, MIBVAL, CICS, VSIZE and
+GETVIS, as the other checks already did. On a host listed on more than one
+page, those six may lose rules they used to keep.
+
+Web
+---
+
+Graphs no longer depend on an RRD file's modification time. The nostale filter
+on graph links, which drops an RRD not updated for a day, now reads the last
+update recorded in the RRD itself: the file time does not always follow the
+writes (on macOS, network shares, old kernels), and multi-file graphs went
+blank a day after they were created. With rrdcached, showgraph.cgi now needs to
+reach the daemon (RRDCACHED_ADDRESS) to draw anything.
+
+On Linux, xymond no longer sets an RRD file's modification time after each
+update. On old kernels, where RRDtool's mmap writes do not update it, a tool
+outside Xymon that relied on that time -- an rsync quick-check, a purge by age
+-- now sees the file as unchanged.
+
+The default charset is now UTF-8: HTMLCONTENTTYPE defaults to "text/html;
+charset=UTF-8", so non-ASCII content renders without relying on the web
+server's default. Sites emitting another encoding (iso-8859-1, euc-jp) should
+set HTMLCONTENTTYPE explicitly in xymonserver.cfg.
+
+A group named "/" in the web access file now grants access to the hosts on the
+front page, and "/pagename" to a page below it. Such lines used to have no
+effect, so a file that already has them grants that access after upgrading. As
+with any group there, the grant covers more than viewing; see
+xymonwebaccess(5).
+
+The svcstatus, history and reportlog CGIs now confine the host, service and
+section values from a request to one safe path component, closing a path
+traversal and xymond-protocol injection reachable in a default install. A host
+whose canonical name (field 2 of hosts.cfg) uses characters outside letters,
+digits and ":,._-" is no longer reachable through these pages: give it an ASCII
+canonical name and carry the original in the NAME: tag. The hosts.cfg loader
+warns at startup about such names.
+
+The periodic reports page (datepage.cgi) now sends the browser to the web URL
+configure was given, instead of always to /xymon/periodic. An upgrade keeps the
+CGI_DATEPAGE_OPTS already in cgioptions.cfg: if your web pages are not at
+/xymon, change --url=/xymon/periodic there to your URL followed by /periodic.
+
+Network tests
+-------------
+
+The smtp, smtps and submission probes no longer send anything before the
+server's 220 greeting. Speaking first violates RFC 5321, and Postfix 3.9
+enables smtpd_forbid_unauth_pipelining by default, answering "554 5.5.0 Error:
+SMTP protocol synchronization" -- such a poll was refused, and reported green
+or yellow depending on which side of the exchange won the race.
+
+An upgrade does not carry this into an existing installation: install merges
+protocols.cfg section by section and leaves the sections already there
+untouched. Remove the "send" line from [smtp], [smtps] and [submission|msa] in
+your protocols.cfg. The mail server then sees a connection that opens and
+closes without a command -- "lost connection after CONNECT" on Postfix,
+NOQUEUE on sendmail -- so allow the Xymon host wherever those lines feed
+fail2ban or a similar counter.
+
+A protocols.cfg entry is now an ordered conversation: an expect waits for the
+server, a send answers it, and "start tls" upgrades a plaintext connection in
+place, so sslcert can check a STARTTLS certificate. The shipped entries wait
+for the greeting and check the reply to their own command. [smtp] and
+[submission] require ESMTP (250 to EHLO): a HELO-only server now reports down,
+and the entry's comment says how to switch it to HELO. A port that accepts and
+never answers now reports down for oratns, ircd, telnet and telnets.
+
+protocols.cfg is now required. An upgrade keeps the sections already in it, as
+above, so it does not get the new conversations: replace your sections with the
+new ones to have them. A section without a port line -- [smtps], [amqp] and
+[amqps] were shipped without one -- still takes its port from /etc/services,
+but xymonnet now logs a warning for it on every run: add "port 465",
+"port 5672" and "port 5671" to them.
+
+xymonnet tests with a cipher-list restriction now report an SSL error when
+OpenSSL rejects it, instead of silently falling back to the default cipher
+list. Such tests may turn red after upgrading Xymon, or after an OpenSSL
+upgrade invalidates a previously accepted restriction.
+
+xymonnet now tests the address written in hosts.cfg, without looking the host's
+name up; only hosts listed as 0.0.0.0 still have their name resolved. The http
+and https tests on such a line connect to that address too, sending the URL's
+name as the Host, unless the URL gives its own address or goes through a proxy.
+A host whose hosts.cfg address is out of date now fails its tests: correct the
+address, or write 0.0.0.0 to keep resolving the name. The testip tag and
+--dns=only are still accepted, but change nothing.
+
+Where Net-SNMP is built without MD5 (NETSNMP_DISABLE_MD5), SNMPv3
+authentication configured for MD5 falls back to SHA1 and warns once at startup.
+Change the authentication to SHA1 to silence it.
+
+An https test now always sends the URL's host name as the TLS servername (SNI);
+a URL written with an IP address sends none. A server holding a certificate per
+name used to answer with its default certificate, so the sslcert status may
+change to describe a different certificate -- the one the URL actually uses.
+The sni and nosni host tags and the --sni option no longer affect https tests.
+A host that relied on nosni wants nosslcert on that line instead, plus a
+separate entry for the default virtual host if its certificate should still be
+watched; hosts.cfg(5) has the details.
+
+xymonnet now warns 14 days before a certificate expires and alarms 7 days
+before, instead of 30 and 10, so certificates renewed automatically close to
+expiry no longer show yellow. For more notice, e.g. for certificates renewed by
+hand, keep the old values with --sslwarn=30 --sslalarm=10 on the xymonnet
+command in tasks.cfg, or ssldays=30:10 on a host in hosts.cfg.
+
+Server -- periodic reports
+--------------------------
+
+tasks.cfg now has three tasks, periodic-daily, periodic-weekly and
+periodic-monthly, that run xymonreports.sh to pre-generate the reports
+datepage.cgi sends the browser to. They ship DISABLED, and an upgrade adds
+them to an existing tasks.cfg disabled as well. To get the reports, remove
+DISABLED from the ones you want.
+
+xymonreports.sh needs GNU date, and no longer needs editing to find it. It
+takes GNUDATE from its environment, so the setting goes in xymonserver.cfg,
+and when none is set it uses the first of gdate and date on PATH that is GNU
+date. On the BSDs and macOS, install GNU coreutils; if gdate is not on the
+PATH set in xymonserver.cfg, set GNUDATE there. Without GNU date it stops
+with one line saying so, instead of running on with BSD date's errors.
+
+Build and API
+-------------
+
+PCRE1 is no longer supported; Xymon builds against PCRE2 only. Most patterns
+are unaffected, but configurations relying on PCRE1-specific syntax should be
+reviewed.
+
+Xymon no longer ships its own copy of c-ares. Install the system c-ares
+development package (libc-ares-dev, c-ares-devel or c-ares) before building
+the server; configure stops and says what is missing. The minimum version is
+still 1.5.1.
+
+A client-only build now installs into the INSTALLETCDIR, INSTALLBINDIR and
+INSTALLTMPDIR it was configured with, which it used to ignore, and links each
+moved directory back under XYMONHOME; a real directory already in the old place
+is left alone, with a message. A packaging that moved the client's files by
+hand can drop that step. clientupdate refuses to update a client whose bin or
+etc is such a link, since tar would replace the link with a directory: update a
+relocated client through its package instead.
+
+The RRDtool argv ABI is detected from the header signature rather than the
+version, so RRDtool 1.9 and later, and backports to 1.8 such as Oracle
+Linux 10's, both work with no configuration.
+
+Pidfiles and xymond_rrd's cache-control sockets now go in XYMONRUNDIR, set at
+configure time; by default it is the log directory, where the pidfiles already
+were. The rrdctl.* sockets therefore move from XYMONTMP to the log directory:
+the web server's user must be able to open that directory, or showgraph.cgi
+cannot ask xymond_rrd to flush its cache, and graphs lag behind the data.
+xymond_rrd refuses to start when XYMONRUNDIR is too long for a socket path, so
+keep it short.
+
+XMH_MULTIHOMED is now XMH_FLAG_MULTIHOMED, the name xymon-xmh(5) has always
+documented. Scripts, web templates and xymondboard or hostinfo field selectors
+using the old name must be updated.
+
+History
+-------
+
+xymond_history no longer writes through symbolic links. A host's directory
+under histlogs, or a test directory below it, that is a symlink is refused with
+a log line, and so is a history file that is one; that host's history stops
+being recorded. A site that moved some hosts' history to another disk through
+symlinks should move the whole hist or histlogs directory instead.
+
+
+Changes for 4.3.30
+==================
+
+Various crashes and bugs relating to string handling changes have been fixed, 
+including problems with hostnames with dashes in them.
+
+Combostatus tests propagated up from other combostatus tests should now
+display properly.
+
+
+Changes for 4.3.29
+==================
+
+Several buffer overflow security issues have been resolved, as well as a potential
+XSS attack on certain CGI interfaces. Although the ability to exploit is limited, 
+all users are urged to upgrade. The assigned CVE numbers are:
+
+  CVE-2019-13451, CVE-2019-13452, CVE-2019-13455, CVE-2019-13473, 
+  CVE-2019-13474, CVE-2019-13484, CVE-2019-13485, CVE-2019-13486
+
+In addition, revisions have been made to a number of places throughout 
+the code to convert the most common sprintf statements to snprintf for 
+safer processing, which should reduce the impact of similar parsing. 
+Additional work on this will continue in the future.
+
+The affected CGIs are:
+
+	history.c (overflow of histlogfn) = CVE-2019-13451
+	reportlog.c (overflow of histlogfn) = CVE-2019-13452
+	csvinfo.c (overflow of dbfn) = CVE-2019-13273
+	csvinfo.c (reflected XSS) = CVE-2019-13274
+	acknowledge.c (overflow of msgline) = CVE-2019-13455
+
+	appfeed.c (overflow of errtxt) = CVE-2019-13484
+	history.c (overflow of selfurl) = CVE-2019-13485
+	svcstatus.c (overflow of errtxt) = CVE-2019-13486
+
+We would like to thank the University of Cambridge Computer Security 
+Incident Response Team for their assistance in reporting and helping 
+resolve these issues.
+
+
+
+Additional Changes:
+
+On Linux, a few additional tmpfs volumes are ignored by default
+on new (or unmodified) installs. This includes /run/user/<uid>,
+which is a transient, per-session tmpfs on some systems. To re-
+enable monitoring for this (if you are running services under
+a user with a login session), you may need to edit the analysis.cfg(5)
+file.
+
+After upgrade, these partitions will no longer be alerted on or
+tracked, and their associated RRD files may also be removed:
+
+ /run/user/<uid> (but NOT /run)
+ /dev (but NOT /dev/shm)
+ /sys/fs/cgroup
+ /lib/init/rw
+
+
+The default hard limit for an incoming message has been raised from 
+10MB to 64MB
+
+The secure apache config snippet no longer requires a xymongroups file
+to be present (and module loaded), since it's not used by default. This
+will not affect existing installs.
+
+A --no-cpu-listing option has been added to xymond_client to suppress the 
+'top' output in cpu test status messages.
+
+The conversation used in SMTP checks has been adjusted to perform a proper
+"EHLO" greeting against servers, using the host string 'xymonnet'. If the 
+string needs to be adjusted, however, see protocols.cfg(5)
+
+"Actual" memory usage (as a percentage) may be >100% on some platforms 
+in certain situations. This alone will not be tagged as "invalid" data and
+should be graphed in RRD.
+
+
+Changes for 4.3.28
+==================
+
+OpenSSL 1.1.0 is now supported.
+
+Specific TLS variants (1.0, 1.1, and 1.2) can be selected for 
+an HTTP test using new protocol tags (see hosts.cfg(5))
+OpenSSL 1.0.1+ is required.
+
+
+The bundled version of c-ares (for hosts without a system lib)
+has been updated to 1.12.0
+
+Xymond_alert should now provide more stable behavior when hosts
+are dropped or alerts go stale between launches.
+
+Summary messages are properly working again.
+
+SCRIPT message sizes are now limited only by environment memory
+and can be increased by adding a MAXMSG_ALERTSCRIPT variable to
+your xymonserver.cfg file
+
+A number of typos have been corrected.
+
+The RRD definition for the netstat graph has been tweaked to
+give a more readable layout.
+
+
+Changes for 4.3.27
+==================
+
+Fixes for CGI acknowledgements and NK/criticalview web redirects.
+
+Xymon should now properly check for lack of SSLv3 (or v2) support at compile-
+time and exclude the openssl options as needed.
+
+Completely empty directories (on Windows) are no longer considered errors.
+
+
+Changes for 4.3.26
+==================
+
+This is mostly a bug fix release for javascript issues on the info and 
+trends pages, along with the enable / disable CGI. Several browsers had
+difficulty with the new CSP rules introduced in 4.3.25.
+
+XYMWEBREFRESH is now used as the default refresh interval for dynamic
+status pages and various other xymongen destinations. Non-svcstatus 
+pages can be overridden by altering the appropriate *_header template
+files, but svcstatus refresh interval uses this value. (default: 60s)
+Set in xymonserver.cfg(5).
+
+Incoming test names are now restricted to alphanumeric characters, colons
+dashes, underscores, and slashes. Slashes and colons may be restricted in 
+a future release.
+
+Unconfigured (ghost) host names are now restricted to alphanumerics, colons, 
+commas, periods, dashes, and underscores. It is strongly recommended to use only
+valid hostnames and DNS components in servers names.
+
+Files matched multiple times by logfetch in the client config retrieved
+from config-local.cfg (such as a file matching multiple globs) will now only 
+be scanned once and only use the ignore/trigger rules from its first entry.
+(Note: A future version of Xymon may combine all matching rules for a file together.)
+
+CLASS groupings in analysis.cfg and alerts.cfg will now reliably work for
+hosts with a CLASS override in hosts.cfg. Previous, this class was not used
+in favor of the class type sent in on any specific client message.
+
+
+
+Changes for 4.3.25
+==================
+
+Several security issues have been resolved relating to "config" messages 
+and Cross-Site-Scripting vulnerabilities in the web interface. We would 
+like to thank Markus Krell for reporting the following security issues 
+and for his assistance in working with us to resolve them.
+
+
+(CVE-2016-2054) - Buffer overflow when handling "config" file requests.
+(CVE-2016-2056) - Shell command injection vulnerability in useradm.sh 
+and chpasswd.sh.
+
+(CVE-2016-2055) - Credential leakage with "config" file requests.
+The default suggested location for htpasswd files used in securing the
+CGI interface had been $XYMONHOME/etc/ and documentation did not mention
+that this file should ONLY be readable by the apache/webserver user.
+
+Administrators should verify this file is not readable by the xymon user 
+and modify ownership and permissions as needed. Additionally, the 
+following restrictions have been added to files requested via "config" 
+messages sent to xymond:
+
+ - They must be regular files as returned by stat (no symlinks)
+ - They must end in ".cfg"
+
+The restriction on file names ending in ".cfg" can be overridden by setting 
+ALLOWALLCONFIGFILES="TRUE" in xymonserver.cfg and restarting xymond.
+
+Note that config files are processed through normal xymon file reading, 
+so features such as "include" and "directory" still work when retrieving 
+files over the network. These included files are not subject to the same 
+restrictions.
+
+
+(CVE-2016-2057) - The xymond feedback queue (or BFQ) had been being 
+created using insecure permissions, allowing any local user to write 
+messages into the queue. This has been resolved and the queue is now 
+created 0620 to the xymon user. If present xymond will attempt to 
+re-create it using the correct permissions, but this process may not 
+succeed on all OS's. Administrators should verify queue permissions 
+using ipcs and delete the key manually with ipcrm if needed.
+
+
+(CVE-2016-2058) - Dynamic and historical status pages generated by the 
+CGI interface now include Content-Security-Policy headers to prevent 
+javascript execution from the payload of status messages themselves. The 
+built-in functionality can be overridden by setting XYMON_NOCSPHEADER in 
+xymonserver.cfg, if you wish to override this via an apache 
+configuration.
+
+
+Additional changes:
+
+
+A bug introduced in 4.3.22 that could cause xymond_alert to fail to
+alert after seeing an unknown (newly added) host alert for the 
+first time has been fixed. Additionally, xymond_alert now regularly
+reloads the hosts.cfg file to pick up changes.
+
+
+The "Actual" memory value on Windows systems will be reported
+more accurately. (Thanks, John Rothlisberger)
+
+A trends_header and trends_footer have been added in the /web/
+templates directory for use on trends display pages.
+
+The xymonclient.cfg file now has a section for passing options
+to xymond_client and logfetch without having to edit the script.
+
+The logfetch command now accepts --noexec as an option to inhibit
+running commands from the client config used to list files to scan
+for messages.
+
+The logfetch command can use a file glob(7) in client-local.cfg (or 
+localclient.cfg) indicated by angle brackets. This is more efficient
+and more secure than executing an `ls` command when matching known
+file or log patterns.
+
+The xymon.sh script now better matches LSB exit code expectations.
+
+The --processor argument to xymond_rrd, allowing RRD data (ie, metrics) 
+to be easily sent to an external system such as OpenTSDB has been 
+properly documented.
+
+
+All users of previous versions are strongly urged to upgrade.
+
+
+Changes for 4.3.24
+==================
+
+Fixes a bug introduced in 4.3.22 where the non-excepted HTTP status 
+codes were always seen as Critical instead of OK/Warning as intended.
+
+All users are urged to upgrade.
+
+
+Changes for 4.3.23
+==================
+
+Fixes a bug in 4.3.22 where RRD tracking of number of matching processes or
+ports open on a client was not being performed.
+
+
+Changes for 4.3.22
+==================
+
+The default rules for HTTP response codes have been simplified and made more
+generic:
+    1xx = Warning (when the final code received)
+    2xx = OK
+    3xx = Warning (except 302/303/307 = OK)
+    4xx = Critical
+    5xx = Critical
+
+The specific changes from previous versions are:
+ - 401 and 403 response codes are now considered Critical (were OK)
+ - 301 Permanent Redirect response code is now considered a Warning (was OK)
+ - "Extended" or new HTTP status codes in the 4xx and 5xx range
+   are now considered Critical (unknown codes were previously a Warning)
+
+In the case of 301, 401, and 403 HTTP codes, if you're expecting to receive
+this HTTP status from a URL query, you should add the code explicitly to
+the check by using the "httpstatus" syntax (see hosts.cfg(5)).
+Basic HTTP Authentication is supported for testing logins to a site.
+
+*** Special note: Many vendor-supplied default "Welcome" pages on unconfigured
+apache servers are actually generated by a 403 error handler. Generically
+testing for these pages will now show a red status instead of a green one. To
+fix, simply place an index.html page at the root of the site so that 403's are
+not generated.
+
+
+
+The 'sslcert' test will now indicate the signature algorithm and cipher 
+that was actually used in the connection, instead of a list of all ciphers. 
+Use --showallciphers to restore the previous behavior.
+
+
+On new installs, the default apache configuration no longer requires a trailing
+slash when accessing the xymon pages. http://www.example.com/xymon will work.
+
+
+NTPDATEOPTS, FPINGOPTS, and TRACEROUTEOPTS variables are now present in
+xymonserver.cfg and will override the default options for the associated
+xymonnet calls.
+
+Note: The suggested options to 'traceroute' were never actually used as 
+the default on a standard installation. In a future release, 
+'-n -q 2 -w 2 -m 15' may be used unless overridden or otherwise specified.
+
+
+Darwin clients (Mac OS X) now exclude AFS and read-only volumes (which are 
+usually just mounted disk images) from processing, properly handle volumes with
+spaces in their names, and correctly process inode details.
+
+
+A chpasswd.sh file is now provided which allows a logged-in user to 
+change their own .htpasswd password (after verification). Because it 
+verifies their existing password first, it requires the '-v' option to 
+htpasswd, which is only available in Apache 2.4.5 or higher.
+
+By default, it is installed in the /xymon-seccgi/ directory, but can be 
+moved to the /xymon-cgi/ directory to allow all users to change their 
+password. Basic input validation is provided, but this CGI should be 
+used with caution and only with relatively-trusted user bases.
+
+
+xymongen used to skip over host groups on pages when it calcuated that
+there were no test results to be displayed in that table. These groups are
+now displayed, but you can restore the previous behavior by passing it
+the --no-showemptygroups option.
+
+
+Changes for 4.3.21
+==================
+RSS feeds should now display the short description of the event again.
+
+
+Changes for 4.3.20
+==================
+Remote summaries display had been broken for a while but should now be working
+again. Summaries are now also displayed on the nongreen.html page
+
+The "Actual Used" memory figure on recent Linux kernels is now taken from
+the "Available" memory reported back from free (or /proc/meminfo), which should
+give a more accurate response. Physical Memory Used is still reported as the 
+combination of Kernel Physical Use + buffers/cache, however this may change in
+a future release.
+
+Documentation for various directives in hosts.cfg(5) has been added
+
+pulldata=IP:PORT directives are honored, if the defaults for the host are
+incorrect
+
+cgiwrap is now installed via hardlinking (or as packaged); FollowSymLinks 
+is no longer needed for the xymon cgi-bin directories and can be removed.
+
+Planned downtime settings are now applied to 'purple' statuses as well
+
+http checks can now be performed using a HEAD request if desired.
+
+Which RRD graphs are displayed on a status page can now be customized on
+a per-test basis through the use of environment variables. For example,
+GRAPHS_cpu="la,vmstat1" will cause an additional graph to be shown on 
+cpu tests. (Submitted by Werner Maier)
+
+A new column will be displayed on all xymon pages allowing direct access
+to a server's raw clientlog (similar to the special info and trends columns). 
+This can be disabled with a "noclient" tag in hosts.cfg
+
+Additional sample protocols.cfg services are present, for svn, amqp(s) and
+ircd. (Note that different ircd servers respond differently and the included
+protocol conversation may require modification to work on your server.)
+
+
+Changes for 4.3.19
+==================
+This is mostly a bugfix release (see the Changes file for a full list), 
+but there are some enhancements:
+
+Apache 2.4 syntax is now supported by the sample xymon.conf file.
+
+EXTIME= syntax in analysis.cfg and alerts.cfg files is now supported.
+Note that this exclusion is applied *after* any normal TIME= 
+specifiers. (If a TIME= modifier is present, then times outside of
+that range are already excluded.)
+
+An Acknowledgements report CGI is now available, similar to 
+the Notifications report. (Thanks, Andy Smith)
+
+Client logs with multiple trigger lines found are guaranteed to have all
+the sections returned, even if this exceeds the "maxbytes" specified (up to
+the compiled-in limit). Additionally, the "current" location of new log 
+data written since the last time xymonclient was run is now marked for 
+reference. (Thanks, Franco Gasperino)
+
+A new "deltacount" option is available in client-local.cfg. It functions
+similarly to "linecount" for a given log: entry, but only counts matching 
+lines written in the log file since the last run.
+
+Additional filtration options are available for the xymondboard command,
+including the full body of the message, and acknoweldgement and disable
+comments. Also, inequalities can be used to filter an epoch timestamp
+against any of: lastchange, logtime, validtime, acktime, or disabletime.
+See the xymon(1) man page for details.
+
+The process list visible in the 'procs' test of Linux and FreeBSD clients
+is now generated in ASCII "forest" mode for increased legibility.
+
+
+Changes for 4.3.18
+==================
+4.3.18 fixes a buffer overflow vulnerability in the acknowledge.cgi
+script (CVE-2015-1430). All users are encouraged to upgrade.
+
+Thank you to Mark Felder for noting the impact and Martin Lenko
+for the original patch.
+
+
+In previous versions, the Xymon web CGI programs were run through
+a shell-script wrapper, which took care of setting up the environment
+for the Xymon programs. In light of the bash 'Shell shock' bug, this
+is no longer the case. Instead, a binary 'cgiwrap' utility is used
+to load the xymonserver.cfg and cgioptions.cfg files before invoking
+the CGI programs. This means that the cgioptions.cfg file is no longer 
+parsed as a shell script, so if you rely on this then it will no 
+longer work. In that case you must replace the symlink(s) in 
+xymon/cgi-bin/ with shell script wrappers which source the 
+cgioptions.cfg file.
+
+
+Changes for 4.3.15 - 4.3.17
+===========================
+No significant changes.
+
+
+Changes for 4.3.14
+==================
+In previous Xymon versions, a client-only configuration (i.e. one
+configured with "./configure --client") would place the client
+files in a "client" subdirectory below the directory specified 
+during configuration. This is the same directory layout as a server 
+installation, where the server and client parts of Xymon are
+in separate subdirectories.
+In 4.3.14, the default has changed so a client-only installation
+now installs in the directory given during the configure-step.
+The "/client" has been eliminated, so if you are upgrading an
+existing client you must either move the old client installation
+one level up from the "client/" directory, or change the Makefile
+generated by "configure --client" and add "/client" to the 
+XYMONTOPDIR setting.
+
+The SNI support added in 4.3.13 causes problems with some older
+webservers, whose SSL implementation cannot handshake correctly
+when SNI is used. The failed handshake causes Xymon to report
+the site as down. In 4.3.14, the default is changed so SNI is
+disabled. A new "--sni" option was added to xymonnet to control the
+default setting, and two new tags "sni" and "nosni" can be used in 
+hosts.cfg to control SNI for each host that is tested.
+
+
+Changes for 4.3.13
+==================
+This is mostly a bugfix release. Apart from simple bugs (see
+the Changes file), there are some enhancements:
+
+Alerts sent via e-mail have <CR><NL> line-endings converted
+to plain <NL>, since the carriage-return characters would
+cause some mailers to send alerts as a (binary) attachment
+to an empty mail message.
+
+https-URL's can be forced to use TLS only, by using 
+"httpst://..." similar to how SSLv2 and SSLv3 can be chosen.
+
+SSL connections (e.g. for https URL's) now use the TLS 
+"Server Name Indication" (SNI) if your OpenSSL library 
+supports it. This allows testing of systems that have 
+multiple SSL websites located on the same physical IP+port 
+(i.e. virtual name-based hosts).
+
+
+Changes for 4.3.12
+==================
+NOTE: This release includes a bugfix for a security issue
+in the xymond_history and xymond_rrd modules. A "drophost"
+command sent to the xymond port (default: 1984) from an IP
+listed in the --admin-senders access control list can be
+used to delete files owned by the user running the xymond 
+daemon. This is allowed by default, so it is highly recommended
+to install this update.
+
+
+Changes for 4.3.2 - 4.3.11
+==========================
+See the Changes file for a list of significant changes.
+These releases are mostly to fix bugs.
+
+NOTE: Some configuration parameters have changed, so you must 
+regenerate the top-level Makefile by running the "configure" 
+script before compiling the new version.
+
+The inode-check introduced in 4.3.8 and 4.3.10 requires
+that you update both the Xymon server installation and the
+Xymon client on the systems where you want to monitor how
+many inodes are being used.
+
+
+Changes for 4.3.1
+==================
+This is a SECURITY BUG FIX release, resolving a number of 
+potential cross-site scripting vulnerabilities in the Xymon 
+web interface.
+
+Thanks to David Ferrest who reported these to me.
+
+
+Changes for 4.3.0
+==================
+IMPORTANT: Most files and internals in Xymon have been renamed
+with the 4.3.0-beta3 release. If you are upgrading from a
+version prior to 4.3.0-beta3, you MUST read the file 
+docs/upgrade-to-430.txt and make sure you follow the steps
+outlined here. That also applies if you are upgrading from
+4.3.0-beta2.
+
+Xymon 4.3.0 is the first release with new features after 
+the 4.2.0 release. Several large changes have been made
+throughout the entire codebase. Some highlights (see
+the Changes file for a longer list):
+
+* Data going into graphs can now be used to alter a status,
+  e.g. to trigger an alert from the response time of a network
+  service.
+* Tasks in xymonlaunch can be be configured to run at specific
+  time of day using a cron-style syntax for when they must run.
+* Worker modules (RRD, client-data parsers etc) can operate on
+  remote hosts from the xymond daemon, for load-sharing.
+* Support for defining holidays as non-working days in alerts and
+  SLA calculations.
+* Hosts which appear on multiple pages in the web display can
+  use any page they are on in the alerting rules and elsewhere.
+* Various new network tests: SOAP-over-HTTP, HTTP tests with
+  session cookies, SSL minimum encryption strength test.
+* New "compact" status display can group multiple statuses into
+  one on the webpage display.
+* Configurable periods for graphs on the trends page.
+* RRD files can be configured to maintain more data and/or
+  different data (e.g. MAX/MIN values)
+* SLA calculations now include the number of outages in addition
+  to the down-time.
+* Solaris client now uses "swap -l" to determine swap-space
+  usage, which gives very different results from the previous
+  "swap -s" data. So your Solaris hosts will appear to change
+  swap-utilisation when the Xymon client is upgraded.
+
+TRACKMAX feature removed
+------------------------
+For users of the TRACKMAX feature present in 4.2.2 and
+later 4.2.x releases: This feature has been dropped. Instead,
+you should add a definition for the tests that you want to track
+max-values for to the rrddefinitions.cfg file. E.g. to
+track max-values for the "mytest" status column:
+
+[mytest]
+	RRA:MAX:0.5:1:576
+	RRA:MAX:0.5:6:576
+	RRA:MAX:0.5:24:576
+	RRA:MAX:0.5:288:576
+
+
+Changed behaviour of http testing via proxy
+-------------------------------------------
+The Big Brother behaviour of allowing you to specify an http 
+(web) proxy as part of the URL in a test has been disabled
+by default, since it interferes with URL's that contain
+another URL as part of the URL path. If you need the Big Brother
+behaviour, add "--bb-proxy-syntax" to your invocations of 
+bbtest-net.
+
+BBGHOSTS setting removed
+------------------------
+Setting BBGHOSTS in the xymonserver.cfg file no longer has any
+effect. Instead, you must use the "--ghosts" option for hobbitd.
+The default ghost handling has also been changed from "ignore"
+to "log".
+
+xymonproxy: Alert support for Big Brother servers removed
+---------------------------------------------------------
+The xymonproxy tool no longer supports forwarding "page"
+messages. This means that if you are forwarding messages
+from an old Big Brother client to a Big Brother server
+that is sending out alerts, then these alerts will be
+dropped. Status updates will be forwarded, only alerts
+triggered from the Big Brother server are affected.
+
+Webpage menu: New menu code
+---------------------------
+The Javascript-based menu code ("Tigra") has been replaced
+with a menu based on CSS/HTML4. This means that any menu
+customization will have to be manually transferred to the
+new menu definition file, ~xymon/server/etc/xymonmenu.cfg.
+The new menu-system is known NOT to work with Internet
+Explorer 6 (IE 7 and newer are fine). If you must have a
+menu system that works with the ancient browsers, then the
+old Tigra menu can be downloaded from
+http://xymon.svn.sourceforge.net/viewvc/xymon/sandbox/tigramenu/?view=tar
+together with instructions for using it with Xymon 4.3.0.
+

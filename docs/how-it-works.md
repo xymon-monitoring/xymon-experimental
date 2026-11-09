@@ -92,8 +92,9 @@ code cancels nothing, and another milestone's lanes (the newest's weekly
 ones, a preview's) are left alone.
 
 A released milestone is retired by the build. Once it is closed on
-`xymon-monitoring/xymon` and no open pull request carries it any more, the
-build writes nothing for it and deletes its `candidate/<milestone>` and
+`xymon-monitoring/xymon` and the build integrated no pull request for it --
+none open, or only drafts and pull requests it does not select -- the build
+writes nothing for it and deletes its `candidate/<milestone>` and
 `experimental/<milestone>`; a closed milestone is one of the build's inputs,
 so the next scheduled build after the milestone is closed runs, rather than
 skipping as unchanged, and retires it. Closing a milestone starts nothing by

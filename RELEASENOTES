@@ -24,6 +24,18 @@ and a --tls-listen address, and point clients at "xymons://". The plaintext
 port keeps working alongside it, so clients move over one at a time. Nothing
 changes until you set it up; xymon-tls(7) is the walkthrough.
 
+xymond -- a connection limit, and no FD_SETSIZE
+-----------------------------------------------
+
+xymond now drives its connections with poll() instead of select(), so
+the number it can hold open at once is no longer fixed when it is built
+(1024 on most platforms, 256 on NetBSD, past which xymond stopped with
+"Fatal error in select"). The limit is XYMOND_MAXCONNECTIONS in
+xymonserver.cfg; unset, it is the process's open-file limit less 64. A
+connection beyond it is refused as it is accepted and logged at most
+once a minute. Nothing changes for an installation that stays below
+its old ceiling.
+
 xymonping -- IPv6 addresses are pinged
 -------------------------------------
 

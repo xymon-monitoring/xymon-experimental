@@ -113,6 +113,15 @@ client data page starts with a "[transport]" section saying how the
 message came ("TLSv1.3 from 192.0.2.1"). That section is added to the page
 only; the client message xymond stores and returns is unchanged.
 
+xymonserver.cfg -- the server sends to itself over loopback
+-----------------------------------------------------------
+
+On a new server, the server's programs and its own client send to xymond over
+127.0.0.1, so it keeps reporting on itself when a network interface goes away.
+An upgrade keeps the existing configuration; to switch, set XYMSRV="127.0.0.1"
+in xymonserver.cfg and prefix the [xymonclient] command in tasks.cfg with "env
+XYMSRV=127.0.0.1". Remote clients are unchanged.
+
 
 Platforms -- IRIX, OSF1, SCO and GNU/kFreeBSD are removed
 ----------------------------------------------------------

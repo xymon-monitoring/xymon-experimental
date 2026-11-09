@@ -95,7 +95,9 @@ A released milestone is retired by the build. Once it is closed on
 `xymon-monitoring/xymon` and no open pull request carries it any more, the
 build writes nothing for it and deletes its `candidate/<milestone>` and
 `experimental/<milestone>`; a closed milestone is one of the build's inputs,
-so closing one starts the build that retires it. Left in place, the branch
+so the next scheduled build after the milestone is closed runs, rather than
+skipping as unchanged, and retires it. Closing a milestone starts nothing by
+itself. Left in place, the branch
 would stay at the last pre-release build, be taken for the oldest milestone
 -- the release being driven -- and so hold the daily lanes the real one should
 have. Its preview releases stay, as the record of what was tested. A milestone

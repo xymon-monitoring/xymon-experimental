@@ -262,7 +262,14 @@ jobs:
             # published now its lanes all passed. The preview's commit and this
             # one are the same tree with one commit on top -- the version stamp
             # there, the CI overlay here -- so they share their parent.
-            if [ "$bad" -eq 0 ] && [ "$total" -gt 0 ]; then
+            # All 16 runs -- the 15 families and macOS each preview starts
+            # (experimental-preview.yml) -- not only those that exist: a
+            # dispatch that stopped part-way leaves families with no run.
+            nruns=$(printf '%s\n' "$runs" | grep -c .)
+            if [ "$bad" -eq 0 ] && [ "$total" -gt 0 ] && [ "$nruns" -lt 16 ]; then
+              echo "$BRANCH $short: $nruns of the 16 lane runs exist; no draft published" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            if [ "$bad" -eq 0 ] && [ "$total" -gt 0 ] && [ "$nruns" -ge 16 ]; then
               parent=$(gh api "repos/$REPO/commits/$SHA" -q '.parents[0].sha')
               for t in $(gh release list -R "$REPO" -L 100 --json tagName,isDraft \
                            -q ".[] | select(.isDraft and (.tagName | startswith(\"preview-$ms-\"))) | .tagName"); do

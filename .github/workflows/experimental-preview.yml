@@ -120,7 +120,13 @@ jobs:
 
           # Published only on lanes that had all finished and passed before
           # this preview was made; lanes started above are not results yet.
-          if [ "$PUBLISH" = true ] && [ "$ran" -gt 0 ]; then
+          # All 16 runs (the 15 families above and macOS): a dispatch that
+          # stopped part-way leaves families with no run, which a check of
+          # the runs present would not see.
+          if [ "$PUBLISH" = true ] && [ "$ran" -gt 0 ] && [ "$ran" -lt 16 ]; then
+            echo "Not published: $ran of the 16 lane runs exist on \`${head:0:9}\`." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$PUBLISH" = true ] && [ "$ran" -ge 16 ]; then
             notok=$(gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml --branch "experimental/$M" -L 100 \
                       --json headSha,conclusion -q "[.[] | select(.headSha == \"$head\" and .conclusion != \"success\")] | length")
             if [ "$notok" -eq 0 ]; then

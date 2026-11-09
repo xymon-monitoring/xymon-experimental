@@ -124,8 +124,17 @@ explain_gone() {
 	echo "| PR | | State |"
 	echo "|---|---|---|"
 	while IFS=$'\t' read -r pr h; do
-		read -r state title < <(gh pr view "$pr" -R "$repo" --json state,title -q '"\(.state) \(.title)"')
-		case "$state" in MERGED) s="merged" ;; OPEN) s="**not reviewed**" ;; *) s=$(echo "$state" | tr A-Z a-z) ;; esac
+		# The review decision as GitHub has it: an open pull request may be
+		# approved already, or have changes requested.
+		read -r state review title < <(gh pr view "$pr" -R "$repo" --json state,reviewDecision,title \
+			-q '"\(.state) \(.reviewDecision // "none") \(.title)"')
+		case "$state:$review" in
+		MERGED:*) s="merged" ;;
+		OPEN:APPROVED) s="approved" ;;
+		OPEN:CHANGES_REQUESTED) s="**changes requested**" ;;
+		OPEN:*) s="**not reviewed**" ;;
+		*) s=$(echo "$state" | tr A-Z a-z) ;;
+		esac
 		echo "| #$pr | $title | $s |"
 	done < "$out/prs.tsv"
 	if [ -n "$glue" ]; then

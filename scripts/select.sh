@@ -93,7 +93,12 @@ emit() {
 	if [ "$mode" = pick ]; then
 		local subj=$(mktemp)
 		for d in $(closure "$n"); do
-			[ -n "${head[$d]:-}" ] && git log --no-merges --format=%s "$base..${head[$d]}"
+			# if/then, not &&: a trailing dependency with no head leaves the
+			# loop (the left of the pipe) at exit 1, which pipefail and set -e
+			# would take for a failure and abort the whole plan.
+			if [ -n "${head[$d]:-}" ]; then
+				git log --no-merges --format=%s "$base..${head[$d]}"
+			fi
 		done | sort -u > "$subj"
 		commits=$(git log --reverse --no-merges --format='%H %s' "$base..${head[$n]}" \
 			| while read -r c s; do grep -qxF -- "$s" "$subj" || printf '%s ' "$c"; done)

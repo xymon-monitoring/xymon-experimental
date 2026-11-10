@@ -139,11 +139,17 @@ jobs:
           MAX: ${{ inputs.max_milestone }}
         run: |
           set -euo pipefail
+          # This step is otherwise silent on failure: name the command that
+          # failed, so a transient fault is diagnosable from the run page.
+          trap 'rc=$?; echo "::error::Integrate failed (exit $rc) at: $BASH_COMMAND"; exit $rc' ERR
+          # Retry a call across a transient network or GitHub API fault.
+          retry() { local i; for i in 1 2 3; do "$@" && return 0; sleep 3; done; "$@"; }
           cd xymon
           git config user.name "xymon-experimental"
           git config user.email "xymon-experimental@users.noreply.github.com"
           mkdir -p .git/rr-cache
-          cp -R ../rerere/rr-cache/. .git/rr-cache/
+          # A cold cache (first run, or no resolutions yet) is not a failure.
+          if [ -d ../rerere/rr-cache ]; then cp -R ../rerere/rr-cache/. .git/rr-cache/; fi
           git checkout -q --detach origin/main
           # Every commit dated as main's head: the same inputs then give the
           # same commits, so a run that changes nothing pushes nothing and
@@ -157,7 +163,7 @@ jobs:
           } | { grep -x '[0-9][0-9]*' || true; } | sort -un \
             | { grep -vxF -f <(jq -r '.[].number' ../prs.json) || true; } \
             | while read -r n; do
-                if [ "$(gh pr view "$n" -R xymon-monitoring/xymon --json state -q .state)" = MERGED ]; then echo "$n"; fi
+                if [ "$(retry gh pr view "$n" -R xymon-monitoring/xymon --json state -q .state)" = MERGED ]; then echo "$n"; fi
               done > ../merged.txt
           bash ../experimental/scripts/select.sh ../prs.json origin/main ../merged.txt > ../plan.tsv
           # max_milestone stops the line there: the milestones stack, each on

@@ -27,6 +27,16 @@ report=$(dirname "$plan")/report.tsv
 RR="-c rerere.enabled=true -c rerere.autoupdate=true"
 export GIT_EDITOR=true
 
+# RELEASENOTES gathers one entry per pull request in a single section, so two
+# that both add there conflict on the same anchor though neither entry is
+# wrong. Union-merge it, the way a changelog is meant to merge: both sides'
+# lines are kept, so the pull requests are integrated instead of left out. The
+# attribute is local to the build clone; it changes no pull request and no
+# tracked file.
+gitdir=$(git rev-parse --git-common-dir)
+mkdir -p "$gitdir/info"
+printf 'RELEASENOTES merge=union\n' >> "$gitdir/info/attributes"
+
 declare -A in out
 declare -A glued
 apply_glue() {

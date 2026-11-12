@@ -17,6 +17,7 @@ echo "|---|---:|"
 echo "| merged cleanly | $(count pr clean) |"
 echo "| merged with a recorded resolution | $(count pr resolved) |"
 echo "| left out: conflict nothing resolves | $(count pr conflict) |"
+echo "| left out: git error (not a conflict) | $(count pr error) |"
 echo "| left out: a dependency is out | $(count pr skipped) |"
 echo "| glue applied | $(count glue applied) |"
 echo "| glue not needed (a PR it joins is out) | $(count glue skipped) |"
@@ -29,12 +30,12 @@ echo "| milestone | ends at |"
 echo "|---|---|"
 awk -F'\t' '$1=="milestone"{printf "| %s | `%s` |\n", $2, substr($3,1,9)}' "$rep"
 echo
-if [ "$(awk -F'\t' '($1=="pr" && ($3=="conflict"||$3=="skipped")) || ($1=="glue" && $3!="applied")' "$rep" | wc -l | tr -d ' ')" -gt 0 ]; then
+if [ "$(awk -F'\t' '($1=="pr" && ($3=="conflict"||$3=="error"||$3=="skipped")) || ($1=="glue" && $3!="applied")' "$rep" | wc -l | tr -d ' ')" -gt 0 ]; then
 	echo "## Left out, and why"
 	echo
 	echo "| item | result | detail |"
 	echo "|---|---|---|"
-	awk -F'\t' '($1=="pr" && ($3=="conflict"||$3=="skipped")){printf "| #%s | %s | %s |\n", $2, $3, $4}
+	awk -F'\t' '($1=="pr" && ($3=="conflict"||$3=="error"||$3=="skipped")){printf "| #%s | %s | %s |\n", $2, $3, $4}
 		($1=="glue" && $3!="applied"){printf "| glue %s | %s | %s |\n", $2, $3, $4}' "$rep"
 	echo
 fi

@@ -18,6 +18,9 @@
 # A glue patch whose change is already in the tree is reported obsolete, not
 # applied: the pull requests it joins have merged with it.
 #
+# A git failure that is not a conflict (a missing commit, say) leaves the PR
+# out as an error, never as resolved.
+#
 # report.tsv lines:  pr N result detail  |  glue NAME result detail  |
 #                    milestone M commit
 set -uo pipefail
@@ -73,6 +76,14 @@ end_milestone() {
 
 unresolved() { git diff --name-only --diff-filter=U | tr '\n' ' '; }
 
+# A merge or cherry-pick that stops with no unmerged path either had every
+# conflict resolved by rerere -- the operation is still in progress, waiting
+# for its commit -- or never started: a missing commit, a dirty tree, any git
+# error. Only the first is "resolved"; the second is an error, and its first
+# line of output says why.
+in_progress() { git rev-parse -q --verify "$1" >/dev/null; }
+first_line() { printf '%s\n' "$1" | grep -m1 . | tr '\t' ' ' || echo "git failed"; }
+
 # A file the incoming pull request deletes, where an earlier one edited it,
 # is a modify/delete conflict, which rerere does not record. The deletion is
 # the incoming pull request's stated intent, and edits to a file it removes are
@@ -97,29 +108,34 @@ while IFS=$'\t' read -r n m mode head deps commits; do
 	if [ -n "$missing" ]; then
 		out[$n]=1; printf 'pr\t%s\tskipped\tneeds%s, left out of this build\n' "$n" "$missing" >> "$report"; continue
 	fi
-	start=$(git rev-parse HEAD) files="" resolved=""
+	start=$(git rev-parse HEAD) files="" resolved="" error=""
 	if [ "$mode" = merge ]; then
-		if ! git $RR merge -q --no-ff -m "experimental: merge #$n" "$head" >/dev/null 2>&1; then
+		if ! err=$(git $RR merge -q --no-ff -m "experimental: merge #$n" "$head" 2>&1); then
 			take_deletions || true
 			files=$(unresolved)
-			if [ -z "$files" ]; then
-				resolved=1; git $RR commit -q --no-edit >/dev/null
-			else
+			if [ -n "$files" ]; then
 				git merge --abort
+			elif in_progress MERGE_HEAD && err=$(git $RR commit -q --no-edit 2>&1); then
+				resolved=1
+			else
+				error=$(first_line "$err")
 			fi
 		fi
 	else
 		for c in $commits; do
-			git $RR cherry-pick --allow-empty --keep-redundant-commits "$c" >/dev/null 2>&1 && continue
+			err=$(git $RR cherry-pick --allow-empty --keep-redundant-commits "$c" 2>&1) && continue
 			take_deletions || true
 			files=$(unresolved)
-			if [ -z "$files" ]; then
-				resolved=1; git $RR cherry-pick --continue >/dev/null 2>&1 || git $RR commit -q --allow-empty --no-edit
-			else
+			if [ -n "$files" ]; then
 				git cherry-pick --abort; break
+			elif in_progress CHERRY_PICK_HEAD \
+				&& { git $RR cherry-pick --continue >/dev/null 2>&1 || err=$(git $RR commit -q --allow-empty --no-edit 2>&1); }; then
+				resolved=1
+			else
+				error=$(first_line "$err"); break
 			fi
 		done
-		[ -n "$files" ] || git commit -q --allow-empty -m "experimental: merge #$n
+		[ -n "$files$error" ] || git commit -q --allow-empty -m "experimental: merge #$n
 
 Its own commits, cherry-picked: $(for c in $commits; do printf '%s ' "${c:0:9}"; done)
 The rest of its branch copies pull requests it depends on."
@@ -127,6 +143,11 @@ The rest of its branch copies pull requests it depends on."
 	if [ -n "$files" ]; then
 		git reset -q --hard "$start"
 		out[$n]=1; printf 'pr\t%s\tconflict\t%s\n' "$n" "$files" >> "$report"
+	elif [ -n "$error" ]; then
+		# reset --hard also drops a merge or cherry-pick left half-done.
+		git cherry-pick --abort >/dev/null 2>&1; git merge --abort >/dev/null 2>&1
+		git reset -q --hard "$start"
+		out[$n]=1; printf 'pr\t%s\terror\t%s\n' "$n" "$error" >> "$report"
 	else
 		in[$n]=1; printf 'pr\t%s\t%s\t%s\n' "$n" "$([ -n "$resolved" ] && echo resolved || echo clean)" "$mode ${head:0:9}" >> "$report"
 	fi

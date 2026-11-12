@@ -192,7 +192,7 @@ jobs:
           fi
           cat ../EXPERIMENTAL.md >> "$GITHUB_STEP_SUMMARY"
           # One warning per pull request or glue patch left out, on the run's page.
-          awk -F'\t' '($1=="pr" && ($3=="conflict"||$3=="skipped")){printf "#%s left out: %s %s\n", $2, $3, $4}
+          awk -F'\t' '($1=="pr" && ($3=="conflict"||$3=="error"||$3=="skipped")){printf "#%s left out: %s %s\n", $2, $3, $4}
                        ($1=="glue" && $3=="failed"){printf "glue %s: %s\n", $2, $4}' ../report.tsv > ../left-out.txt
           while read -r line; do echo "::warning::$line"; done < ../left-out.txt
           # An obsolete glue patch is not a failure: a notice, so it gets deleted.

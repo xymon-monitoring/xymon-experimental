@@ -30,6 +30,8 @@ deletes is deleted, even where an earlier pull request edited it: rerere does
 not record that kind of conflict, and the deletion is the pull request's intent. A conflict it has
 not seen leaves that pull request out of the build, with every pull request
 that depends on it, and the report says which and why. The build goes on.
+A git command that fails for another reason (a missing commit, say) leaves
+the pull request out the same way, reported as an error, never as resolved.
 
 To add a resolution: run `scripts/select.sh` and `scripts/integrate.sh` in a
 clone of xymon with the pull request heads fetched as `refs/pr/N` and

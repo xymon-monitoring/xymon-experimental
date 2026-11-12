@@ -19,7 +19,7 @@
 #             since amended): its own commits are those whose subject no
 #             dependency's commits have, and they are cherry-picked;
 #   skip   -- a dependency is neither selected nor merged, or comes in a
-#             later milestone.
+#             later milestone, or the PR is in a dependency cycle.
 set -euo pipefail
 prs=$1 base=$2 merged=${3:-/dev/null}
 sel=$(mktemp); trap 'rm -f "$sel"' EXIT
@@ -41,14 +41,19 @@ while IFS=$'\t' read -r n m _b _h sha d; do
 	ms[$n]=$m head[$n]=$sha deps[$n]=$d
 done < "$sel"
 
-# All dependencies, transitively.
+# All dependencies, transitively; each visited once, so a cycle ends.
 closure() {
-	local n=$1 d out=""
-	for d in ${deps[$n]//,/ }; do
-		out="$out $d"
-		[ -n "${ms[$d]:-}" ] && out="$out $(closure "$d")"
+	local -A seen=()
+	local todo=$1 n d
+	while [ -n "$todo" ]; do
+		n=${todo%% *}; todo=${todo#"$n"}; todo=${todo# }
+		for d in ${deps[$n]//,/ }; do
+			[ -n "${seen[$d]:-}" ] && continue
+			seen[$d]=1
+			[ -n "${ms[$d]:-}" ] && todo="$todo $d"; todo=${todo# }
+		done
 	done
-	printf '%s\n' $out | sort -un | tr '\n' ' '
+	printf '%s\n' "${!seen[@]}" | sort -un | tr '\n' ' '
 }
 
 # Why an open pull request is not selected, or that it is not open at all:
@@ -69,6 +74,10 @@ emit() {
 	local n=$1 d reason="" mode commits=""
 	[ -n "${emitted[$n]:-}" ] && return
 	emitted[$n]=1
+	if [[ " $(closure "$n") " == *" $n "* ]]; then
+		printf '%s\t%s\tskip\t%s\t%s\t%s\n' "$n" "${ms[$n]}" "${head[$n]}" "${deps[$n]}" "in a dependency cycle"
+		return
+	fi
 	for d in ${deps[$n]//,/ }; do
 		if [ -z "${ms[$d]:-}" ]; then
 			grep -qx "$d" "$merged" && continue

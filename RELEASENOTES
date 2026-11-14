@@ -316,6 +316,15 @@ no longer analysed or graphed -- xymond_client logs "No client backend for OS"
 -- so its cpu, disk, memory, procs and other client columns go purple. Retire
 such hosts before upgrading the server, or run xymond_client with
 --unknownclientosok to analyse their reports generically.
+xymonserver.cfg -- the server sends to itself over loopback
+-----------------------------------------------------------
+
+On a new server, the server's programs and its own client send to xymond over
+127.0.0.1, so it keeps reporting on itself when a network interface goes away.
+An upgrade keeps the existing configuration; to switch, set XYMSRV="127.0.0.1"
+in xymonserver.cfg and prefix the [xymonclient] command in tasks.cfg with "env
+XYMSRV=127.0.0.1". Remote clients are unchanged.
+
 
 Changes for 4.3.31
 ==================

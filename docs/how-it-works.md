@@ -152,12 +152,16 @@ A lane run has finished when each of its jobs has a result; the run's own
 status is not waited for, since GitHub can leave it "in progress" long after
 the last job ended. Once every lane run for the branch's current commit has
 finished, the "Lanes" block of the status issue's body gets the milestone's
-row: the commit, how many lanes passed, each lane that did not by name with
-its result, how many passed only on a rerun, and when the last of them
-finished, linked to the runs. A row without a result links to the runs with no
-time, since none has. While a newer commit's lanes run, or a candidate replacing the
-newest milestone is under test, the last finished result stays in the row.
-A milestone whose commit has no lanes yet says in its row what it waits for: the oldest milestone's lanes, or tonight's chain. A comment is written only when a commit's lanes finished with one not passed,
+row. Its columns are the branch's current commit (the head); the state of the
+head's lanes (done, running, or what it waits for); and the last result. The
+last result gives the commit it is for, how many lanes passed, each lane that
+did not by name with its result, how many passed only on a rerun, and when
+the last of them finished, linked to the runs. The last column is the
+milestone's newest preview, published or still a draft. The last result stays
+while a newer commit's lanes run or wait, and while a candidate replacing the
+oldest milestone is under test, so the head and the last result's commit can
+differ. A milestone whose head has no lanes yet says what it waits for: the
+oldest milestone's lanes, or tonight's chain. A comment is written only when a commit's lanes finished with one not passed,
 once per commit, and it mentions the maintainer; a commit whose lanes all
 passed changes the body and nothing else. The workflow's `dry_run` input
 prints the block and any comment on the run's summary instead of writing

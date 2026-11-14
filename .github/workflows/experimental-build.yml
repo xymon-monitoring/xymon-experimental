@@ -295,8 +295,8 @@ jobs:
       # pushed, they test code about to be replaced, and hold runners the
       # candidate's build and tests then queue for: cancel them now rather than
       # at promotion. Not when the code is the same (a manual rebuild), and
-      # never another milestone's: a preview's lanes, or the newest
-      # milestone's weekly ones, are left to finish. Should the candidate fail,
+      # never another milestone's: a preview's lanes, or a later
+      # milestone's chained ones, are left to finish. Should the candidate fail,
       # experimental/<m> has no lane results until a build passes; the lanes
       # report waits for that (experimental-lanes.yml). Not on a partial
       # build, whose lanes may be a preview's.

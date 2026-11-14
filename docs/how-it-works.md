@@ -80,18 +80,24 @@ the last build that passed, and comparing it with `candidate/<milestone>`
 shows whether it is behind. When the oldest milestone moves -- the release
 being driven, which the later milestones stack on -- the lanes are started on
 it, so that release has a lane result of its own every day it changes. The
-newest milestone, whose branch holds every milestone's pull requests, gets
-its lanes once a week, on Sunday, from `experimental lanes`, and only when its
-commit has none yet. A milestone between the two has no lanes of its own. With
-one milestone open, the daily lanes are all there is.
+later milestones' lanes are chained by `experimental lanes`, one milestone at a
+time, since the macOS runners the organisation gets at once are few: once
+every lane on a milestone's commit has finished, passed or not, the next
+milestone's start if its commit has none yet. By day the chain goes on to the
+second milestone only; at night, from 01:00 to 07:00 UTC, through to the
+newest. The night chain starts at 01:47 UTC on the first milestone after the
+oldest whose commit has no lanes, unless lanes are running already, in which
+case it goes on from those. `scripts/chain.sh` makes these decisions, and
+`tests/chain-next.sh` pins them. With one milestone open, the oldest's lanes
+are all there is.
 
 Lanes still running on the oldest milestone are cancelled as soon as a
 candidate with different code is pushed: they test code about to be replaced,
 and hold the runners the candidate's `build` and `tests` would queue for. The
 lanes report skips that milestone until the candidate is promoted. If it fails,
 the milestone has no lane results until a build passes. A rebuild of the same
-code cancels nothing, and another milestone's lanes (the newest's weekly
-ones, a preview's) are left alone.
+code cancels nothing, and another milestone's lanes (chained ones, a
+preview's) are left alone.
 
 A released milestone is retired by the build. Once it is closed on
 `xymon-monitoring/xymon` and the build integrated no pull request for it --
@@ -151,7 +157,7 @@ its result, how many passed only on a rerun, and when the last of them
 finished, linked to the runs. A row without a result links to the runs with no
 time, since none has. While a newer commit's lanes run, or a candidate replacing the
 newest milestone is under test, the last finished result stays in the row.
-A milestone with no lanes of its own, one between the oldest and the newest, says so in its row: its pull requests are in the newest milestone's weekly lanes. The newest milestone's row keeps its last result between Sundays and names the commit waiting for the next. A comment is written only when a commit's lanes finished with one not passed,
+A milestone whose commit has no lanes yet says in its row what it waits for: the oldest milestone's lanes, or tonight's chain. A comment is written only when a commit's lanes finished with one not passed,
 once per commit, and it mentions the maintainer; a commit whose lanes all
 passed changes the body and nothing else. The workflow's `dry_run` input
 prints the block and any comment on the run's summary instead of writing

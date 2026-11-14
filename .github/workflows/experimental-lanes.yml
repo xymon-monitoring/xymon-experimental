@@ -1,11 +1,11 @@
 name: experimental lanes
 
 # For the current commit of each experimental/<milestone> branch, each time a
-# lane run finishes, and once a day. The lanes themselves run daily on the
-# oldest milestone -- the release being driven, started by
-# experimental-promote.yml each time its branch moves -- and once a week, on
-# Sunday, on the newest milestone, whose branch holds every milestone's pull
-# requests; that weekly start is the second schedule below. A lane run is
+# lane run finishes, and once a day. The lanes run on one milestone at a time:
+# on the oldest -- the release being driven -- each time its branch moves
+# (experimental-promote.yml), then chained from here, by day to the second
+# milestone and at night through to the newest; the night chain is started by
+# the second schedule below. scripts/chain.sh decides, and says when. A lane run is
 # started with the workflow token, so its completion starts no workflow_run
 # here; instead its last job,
 # notify-lanes (cmake/bootstrap's pipeline-select-run-lanes.yml), dispatches
@@ -28,12 +28,16 @@ name: experimental lanes
 #     maintainer. A lane run is finished when each of its jobs has a result:
 #     GitHub can take many minutes to mark the run itself completed, and the
 #     dispatch that asked for this look came from its last job;
+#   - once every lane run for a milestone's current commit has finished,
+#     passed or not, the next milestone's lanes are started when
+#     scripts/chain.sh says so: a failure is a result too, and the milestones
+#     after it stack on the same pull requests;
 #   - once every lane on a milestone's current commit has passed, a draft
 #     preview made from that commit is published, whatever the milestone:
 #     experimental-preview.yml leaves a draft and starts the lanes, and this is
 #     where they finish. A lane GitHub cancelled for want of a runner is run
 #     again first (above), so the draft waits for that rerun's result;
-#   - once the newest milestone's weekly lanes have all passed, its next preview is
+#   - once the newest milestone's lanes have all passed, its next preview is
 #     made and published (experimental-preview.yml), at most once a week and
 #     not while one of its previews is still a draft. That preview costs no
 #     lane: they already ran on its commit. An older milestone's preview needs
@@ -44,7 +48,7 @@ name: experimental lanes
 on:
   schedule:
     - cron: '17 12 * * *'    # the daily look
-    - cron: '47 1 * * 0'     # Sunday: start the newest milestone's weekly lanes, then look
+    - cron: '47 1 * * *'     # the night: start the lane chain, then look
   workflow_dispatch:
     inputs:
       after_run:
@@ -93,32 +97,28 @@ jobs:
           done
           echo "::warning::lane run $RUN had not finished after ten minutes; looking anyway"
 
-      # Once a week, on the newest milestone's current commit, unless lanes
-      # already ran on it -- a week with no change costs nothing. The oldest
-      # milestone's lanes are started by experimental-promote.yml when its
-      # branch moves; when the two are one milestone, that covers it and this
-      # finds its runs. The family list is the one experimental-promote.yml uses.
-      - name: Start the weekly lanes on the newest milestone
-        if: ${{ github.event.schedule == '47 1 * * 0' }}
+      - name: Check out this repository
+        uses: actions/checkout@v7
+
+      # The night chain's start, on the first milestone after the oldest whose
+      # head has no lanes, unless lanes run already: the chain goes on from
+      # those when they finish. A night with no change costs nothing.
+      - name: Start the night's lane chain
+        if: ${{ github.event.schedule == '47 1 * * *' }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          newest=$(gh api "repos/$REPO/branches" --paginate -q '.[].name' | sed -n 's|^experimental/||p' | sort -V | tail -1)
-          [ -n "$newest" ] || { echo "no experimental/ branch; no weekly lanes" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
-          sha=$(gh api "repos/$REPO/branches/experimental%2F$newest" -q .commit.sha)
-          if [ -n "$(gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml --commit "$sha" -L 1 --json databaseId -q '.[].databaseId')" ]; then
-            echo "weekly lanes: experimental/$newest at ${sha:0:9} already has lane runs; none started" >> "$GITHUB_STEP_SUMMARY"
+          busy=$(gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml -L 100 --json status \
+                   -q '[.[] | select(.status != "completed")] | length')
+          ms=$(scripts/lane-heads.sh "$REPO" | scripts/chain.sh kickoff "$([ "$busy" -gt 0 ] && echo 1 || echo 0)")
+          if [ -z "$ms" ]; then
+            echo "night chain: nothing to start ($busy lane runs not completed)" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          for f in alpine archlinux centos7 debian amazonlinux freebsd netbsd openbsd opensuse rockylinux almalinux fedora oraclelinux ubuntu solaris; do
-            gh workflow run pipeline-select-run-lanes.yml -R "$REPO" --ref "experimental/$newest" \
-              -f family="$f" -f arch=amd64 -f variant=server -f verify_depth=test
-          done
-          gh workflow run pipeline-select-run-lanes.yml -R "$REPO" --ref "experimental/$newest" \
-            -f family=macos -f arch=all -f variant=server -f verify_depth=test
-          echo "weekly lanes started on experimental/$newest (${sha:0:9})" >> "$GITHUB_STEP_SUMMARY"
+          scripts/start-lanes.sh "$REPO" "$ms"
+          echo "night chain: lanes started on experimental/$ms" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Rerun capacity cancels, or report the lanes
         env:
@@ -161,6 +161,8 @@ jobs:
           branches=$(gh api "repos/$REPO/branches" --paginate -q '.[] | "\(.name) \(.commit.sha)"')
           newest=$(sed -n 's|^experimental/\([^ ]*\) .*|\1|p' <<< "$branches" | sort -V | tail -1)
           oldest=$(sed -n 's|^experimental/\([^ ]*\) .*|\1|p' <<< "$branches" | sort -V | head -1)
+          heads=$(scripts/lane-heads.sh "$REPO")
+          hour=$(date -u +%H)
           : > rows.md
           : > comments.md
           green=
@@ -182,26 +184,10 @@ jobs:
             runs=$(gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml --commit "$SHA" -L 100 \
                      --json databaseId,attempt -q '.[] | "\(.databaseId) \(.attempt)"')
             if [ -z "$runs" ]; then
-              # The oldest milestone's lanes run daily, started when its branch
-              # moves (experimental-promote.yml); the newest's run on Sunday
-              # (above), so between Sundays its branch may have moved on from
-              # the commit its last result is for: that result stays, and the
-              # row says which commit is waiting. A milestone between the two
-              # has no lanes of its own: its pull requests are in the newest's.
-              # A preview starts its own lanes.
-              if [ "$ms" = "$oldest" ]; then
-                echo "| $ms | \`$short\` | no lane runs yet | [none]($link) |" >> rows.md
-              elif [ "$ms" = "$newest" ]; then
-                if [ -n "$keep" ]; then
-                  # Said once: yesterday's note is replaced, not added to.
-                  base=$(sed -E 's/ Weekly lanes; `[0-9a-f]+` waits for Sunday\. \|$/ |/' <<< "$keep")
-                  echo "${base% |} Weekly lanes; \`$short\` waits for Sunday. |" >> rows.md
-                else
-                  echo "| $ms | \`$short\` | no lane runs yet: weekly lanes, on Sunday | [none]($link) |" >> rows.md
-                fi
-              else
-                echo "| $ms | \`$short\` | not run on this branch: its pull requests are in $newest's weekly lanes | [none]($link) |" >> rows.md
-              fi
+              # The oldest milestone's lanes start when its branch moves
+              # (experimental-promote.yml), the others' when the chain reaches
+              # them (scripts/chain.sh), which says what this one waits for.
+              echo "| $ms | \`$short\` | $(scripts/chain.sh wait "$ms" <<< "$heads") | [none]($link) |" >> rows.md
               continue
             fi
             busy=0
@@ -283,6 +269,16 @@ jobs:
               done
             fi
             echo "$BRANCH $short: $bad of $total not passed" >> "$GITHUB_STEP_SUMMARY"
+            # This milestone's lanes are all done: the next one's start, when
+            # the chain says so (scripts/chain.sh).
+            next=$(scripts/chain.sh after "$ms" "$hour" <<< "$heads")
+            if [ -n "$next" ] && [ -n "$DRY_RUN" ]; then
+              echo "chain: lanes would be started on experimental/$next" >> "$GITHUB_STEP_SUMMARY"
+            elif [ -n "$next" ]; then
+              scripts/start-lanes.sh "$REPO" "$next"
+              heads=$(sed "s|^$next 0\$|$next 1|" <<< "$heads")
+              echo "chain: lanes started on experimental/$next" >> "$GITHUB_STEP_SUMMARY"
+            fi
             # One comment per commit whose lanes did not all pass. A commit the
             # block already shows with that result was commented on when it
             # first finished.

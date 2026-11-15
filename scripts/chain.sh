@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# chain.sh after MILESTONE HOUR   -- the milestone whose lanes start now that
+# chain.sh after MILESTONE NIGHT  -- the milestone whose lanes start now that
 #                                    MILESTONE's have all finished, if any
 # chain.sh kickoff BUSY           -- the milestone the night chain starts
 #                                    with, if any; BUSY is 1 while any lane
@@ -11,20 +11,20 @@
 #
 # The chain starts one milestone's lanes at a time, never two: the macOS
 # runners the organisation gets at once are few. (A promotion of the oldest
-# milestone starts its lanes whatever runs, as before.) The oldest milestone's start each time
-# its branch moves (experimental-promote.yml). By day the chain then goes on to
-# the second milestone only; at night, from 01:00 to 07:00 UTC, through to the
-# newest, a milestone whose head already has lanes ending it. The night chain
-# is started at 01:47 UTC (experimental-lanes.yml) on the first milestone after
-# the oldest whose head has none, unless lanes are running already: the chain
-# goes on from those when they finish. HOUR is the UTC hour, 0 to 23.
+# milestone starts its lanes whatever runs, as before.) The oldest milestone's
+# start each time its branch moves (experimental-promote.yml). By day the chain
+# then goes on to the second milestone only; during the night chain, through to
+# the newest, a milestone whose head already has lanes ending it. The night
+# chain is started by experimental-lanes.yml's night run on the first milestone
+# after the oldest whose head has none, unless lanes are running already: the
+# chain goes on from those when they finish. NIGHT is 1 while the night chain
+# runs and 0 otherwise; the workflow decides it from when its night run really
+# started, not from the clock, since GitHub starts that schedule hours late.
 #
 # after and kickoff print a milestone or nothing; wait prints the reason for
 # the status issue's row. Makes no call to GitHub: the workflow
 # gathers what it reads and starts what it prints, which keeps this testable.
 set -euo pipefail
-
-NIGHT_FROM=1 NIGHT_TO=7
 
 read_milestones() {
 	list=() tested=()
@@ -43,11 +43,11 @@ index_of() {
 
 case "${1:-}" in
 after)
-	i=$(index_of "$2") hour=$((10#$3))
+	i=$(index_of "$2") night=$3
 	n=$((i + 1))
 	[ "$i" -ge 0 ] && [ "$n" -lt "${#list[@]}" ] || exit 0
 	[ "${tested[$n]}" = 0 ] || exit 0
-	if [ "$n" -eq 1 ] || { [ "$hour" -ge "$NIGHT_FROM" ] && [ "$hour" -lt "$NIGHT_TO" ]; }; then
+	if [ "$n" -eq 1 ] || [ "$night" = 1 ]; then
 		echo "${list[$n]}"
 	fi
 	;;
@@ -61,11 +61,11 @@ wait)
 	i=$(index_of "$2")
 	if [ "$i" -le 0 ]; then echo "no lane runs yet"
 	elif [ "$i" -eq 1 ]; then echo "waiting: starts when ${list[0]}'s lanes finish"
-	else echo "waiting: tonight's chain, from 01:47 UTC"
+	else echo "waiting: the night run (scheduled 01:47 UTC; GitHub starts it late)"
 	fi
 	;;
 *)
-	echo "usage: chain.sh after MILESTONE HOUR | kickoff BUSY | wait MILESTONE" >&2
+	echo "usage: chain.sh after MILESTONE NIGHT | kickoff BUSY | wait MILESTONE" >&2
 	exit 2
 	;;
 esac

@@ -61,7 +61,7 @@ tarballs as xymon's own releases are made, and drafts a pre-release that
 lists each pull request and what changed since the preview before. It starts
 the lanes on the same commit, and `experimental lanes` publishes the draft
 once every lane on that commit has passed, whatever the milestone -- on its
-night run only (01:47 UTC, as GitHub schedules it), never on the looks that
+night run only (scheduled at 01:47 UTC, started hours later), never on the looks that
 follow a lane run or a promotion. The newest milestone's weekly preview is
 made and published by that night run too. A draft whose lanes did not all
 pass stays a draft; publishing by hand (`publish` on `experimental preview`,
@@ -88,10 +88,14 @@ later milestones' lanes are chained by `experimental lanes`, one milestone at a
 time, since the macOS runners the organisation gets at once are few: once
 every lane on a milestone's commit has finished, passed or not, the next
 milestone's start if its commit has none yet. By day the chain goes on to the
-second milestone only; at night, from 01:00 to 07:00 UTC, through to the
-newest. The night chain starts at 01:47 UTC on the first milestone after the
-oldest whose commit has no lanes, unless lanes are running already, in which
-case it goes on from those. `scripts/chain.sh` makes these decisions, and
+second milestone only; during the night chain, through to the newest. The
+night chain is started by the night run of `experimental lanes` (scheduled at
+01:47 UTC) on the first milestone after the oldest whose commit has no lanes,
+unless lanes are running already, in which case it goes on from those, and it
+lasts six hours from when that run really started. GitHub starts this
+repository's schedules hours late (the 01:47 UTC one around 08:00 in November
+2026), so the chain is timed from the run, not by the clock
+(`scripts/night.sh`). `scripts/chain.sh` makes these decisions, and
 `tests/chain-next.sh` pins them. With one milestone open, the oldest's lanes
 are all there is.
 
@@ -165,7 +169,7 @@ milestone's newest preview, published or still a draft. The last result stays
 while a newer commit's lanes run or wait, and while a candidate replacing the
 oldest milestone is under test, so the head and the last result's commit can
 differ. A milestone whose head has no lanes yet says what it waits for: the
-oldest milestone's lanes, or tonight's chain. A comment is written only when a commit's lanes finished with one not passed,
+oldest milestone's lanes, or the night run. A comment is written only when a commit's lanes finished with one not passed,
 once per commit, and it mentions the maintainer; a commit whose lanes all
 passed changes the body and nothing else. The workflow's `dry_run` input
 prints the block and any comment on the run's summary instead of writing

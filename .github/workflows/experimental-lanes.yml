@@ -4,8 +4,9 @@ name: experimental lanes
 # lane run finishes, and once a day. The lanes run on one milestone at a time:
 # on the oldest -- the release being driven -- each time its branch moves
 # (experimental-promote.yml), then chained from here, by day to the second
-# milestone and at night through to the newest; the night chain is started by
-# the second schedule below. scripts/chain.sh decides, and says when. A lane run is
+# milestone, and through to the newest for six hours after the night run -- the
+# second schedule below -- really starts, which GitHub makes hours late
+# (scripts/night.sh). scripts/chain.sh decides, and says when. A lane run is
 # started with the workflow token, so its completion starts no workflow_run
 # here; instead its last job,
 # notify-lanes (cmake/bootstrap's pipeline-select-run-lanes.yml), dispatches
@@ -106,6 +107,7 @@ jobs:
       # The night chain's start, on the first milestone after the oldest whose
       # head has no lanes, unless lanes run already: the chain goes on from
       # those when they finish. A night with no change costs nothing.
+      # scripts/night.sh finds the night run by this step's name.
       - name: Start the night's lane chain
         if: ${{ github.event.schedule == '47 1 * * *' }}
         env:
@@ -193,7 +195,9 @@ jobs:
           newest=$(sed -n 's|^experimental/\([^ ]*\) .*|\1|p' <<< "$branches" | sort -V | tail -1)
           oldest=$(sed -n 's|^experimental/\([^ ]*\) .*|\1|p' <<< "$branches" | sort -V | head -1)
           heads=$(scripts/lane-heads.sh "$REPO")
-          hour=$(date -u +%H)
+          # The night chain: this is the night run, or one started less than
+          # six hours ago (scripts/night.sh), whatever the clock says.
+          if [ -n "$NIGHT" ]; then night=1; else night=$(scripts/night.sh "$REPO" 2>>"$GITHUB_STEP_SUMMARY"); fi
           : > rows.md
           : > comments.md
           green=
@@ -295,7 +299,7 @@ jobs:
             echo "$BRANCH $short: $bad of $total not passed" >> "$GITHUB_STEP_SUMMARY"
             # This milestone's lanes are all done: the next one's start, when
             # the chain says so (scripts/chain.sh).
-            next=$(scripts/chain.sh after "$ms" "$hour" <<< "$heads")
+            next=$(scripts/chain.sh after "$ms" "$night" <<< "$heads")
             if [ -n "$next" ] && [ -n "$DRY_RUN" ]; then
               echo "chain: lanes would be started on experimental/$next" >> "$GITHUB_STEP_SUMMARY"
             elif [ -n "$next" ]; then

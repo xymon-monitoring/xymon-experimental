@@ -34,23 +34,24 @@ name: experimental lanes
 #     passed or not, the next milestone's lanes are started when
 #     scripts/chain.sh says so: a failure is a result too, and the milestones
 #     after it stack on the same pull requests;
-#   - once every lane on a milestone's current commit has passed, a draft
+#   - on the night run only (the second schedule), and on no other look:
+#     once every lane on a milestone's current commit has passed, a draft
 #     preview made from that commit is published, whatever the milestone:
 #     experimental-preview.yml leaves a draft and starts the lanes, and this is
 #     where they finish. A lane GitHub cancelled for want of a runner is run
 #     again first (above), so the draft waits for that rerun's result;
-#   - once the newest milestone's lanes have all passed, its next preview is
-#     made and published (experimental-preview.yml), at most once a week and
-#     not while one of its previews is still a draft. That preview costs no
-#     lane: they already ran on its commit. An older milestone's preview needs
-#     lanes of its own and stays by hand.
+#   - on the night run only, too: once the newest milestone's lanes have all
+#     passed, its next preview is made and published (experimental-preview.yml),
+#     at most once a week and not while one of its previews is still a draft.
+#     That preview costs no lane: they already ran on its commit. An older
+#     milestone's preview needs lanes of its own and stays by hand.
 #
 # Runs from main (a schedule always does), and runs no pull-request code.
 
 on:
   schedule:
     - cron: '17 12 * * *'    # the daily look
-    - cron: '47 1 * * *'     # the night: start the lane chain, then look
+    - cron: '47 1 * * *'     # the night: start the lane chain, look, and publish previews
   workflow_dispatch:
     inputs:
       after_run:
@@ -130,6 +131,10 @@ jobs:
           LANES_URL: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/pipeline-select-run-lanes.yml
           NOTIFY: bonomani
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          # Previews are published by the night run only: any other look --
+          # after a lane run, after a promotion, the daily one, by hand --
+          # says what the night will publish, and publishes nothing.
+          NIGHT: ${{ github.event.schedule == '47 1 * * *' && '1' || '' }}
         run: |
           set -euo pipefail
           # The lanes of a run, one line each: name, result of its latest
@@ -279,6 +284,8 @@ jobs:
                 [ "$(gh api "repos/$REPO/commits/$t" -q '.parents[0].sha')" = "$parent" ] || continue
                 if [ -n "$DRY_RUN" ]; then
                   echo "$t: would be published, all $total lanes on $short passed" >> "$GITHUB_STEP_SUMMARY"
+                elif [ -z "$NIGHT" ]; then
+                  echo "$t: all $total lanes on $short passed; the night run publishes it" >> "$GITHUB_STEP_SUMMARY"
                 else
                   gh release edit "$t" -R "$REPO" --draft=false > /dev/null
                   echo "$t: published, all $total lanes on $short passed" >> "$GITHUB_STEP_SUMMARY"
@@ -337,6 +344,8 @@ jobs:
               echo "preview of $green: the last one was published $last, less than a week ago" >> "$GITHUB_STEP_SUMMARY"
             elif [ -n "$DRY_RUN" ]; then
               echo "preview of $green: would be made and published" >> "$GITHUB_STEP_SUMMARY"
+            elif [ -z "$NIGHT" ]; then
+              echo "preview of $green: due; the night run makes and publishes it" >> "$GITHUB_STEP_SUMMARY"
             else
               gh workflow run experimental-preview.yml -R "$REPO" --ref main -f milestone="$green" -f publish=true
               echo "preview of $green: started" >> "$GITHUB_STEP_SUMMARY"

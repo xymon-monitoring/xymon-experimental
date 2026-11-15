@@ -11,7 +11,7 @@ name: experimental preview
 # worth testing again, run this again for preview N+1; its notes say what
 # changed since N.
 #
-# By hand, or once a week for the newest milestone from experimental-lanes.yml,
+# By hand, or once a week for the newest milestone from experimental-lanes.yml's night run,
 # which asks for it to be published: the lanes already passed on its commit.
 #
 # Runs from main only (workflow_dispatch from the default branch), and runs no

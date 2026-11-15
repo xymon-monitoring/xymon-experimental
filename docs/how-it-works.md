@@ -60,8 +60,12 @@ The `experimental preview` workflow, run by hand for a milestone, tags
 tarballs as xymon's own releases are made, and drafts a pre-release that
 lists each pull request and what changed since the preview before. It starts
 the lanes on the same commit, and `experimental lanes` publishes the draft
-once every lane on that commit has passed, whatever the milestone. A draft
-whose lanes did not all pass stays a draft.
+once every lane on that commit has passed, whatever the milestone -- on its
+night run only (01:47 UTC, as GitHub schedules it), never on the looks that
+follow a lane run or a promotion. The newest milestone's weekly preview is
+made and published by that night run too. A draft whose lanes did not all
+pass stays a draft; publishing by hand (`publish` on `experimental preview`,
+or `gh release edit --draft=false`) is not affected.
 
 A pull request merged upstream as it was needs no new preview: the code is the
 same, only reviewed now.

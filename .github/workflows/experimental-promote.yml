@@ -91,3 +91,10 @@ jobs:
               -f family=macos -f arch=all -f variant=server -f verify_depth=test
             echo "lanes started on experimental/$m" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+          # The status issue's Lanes block names each branch's head: look now,
+          # so it shows the commit just promoted instead of the one before,
+          # until a lane run or a schedule GitHub may start hours late asks.
+          # That look publishes nothing; only the night run does.
+          gh workflow run experimental-lanes.yml -R "$REPO" --ref main
+          echo "lanes look started for the status issue" >> "$GITHUB_STEP_SUMMARY"

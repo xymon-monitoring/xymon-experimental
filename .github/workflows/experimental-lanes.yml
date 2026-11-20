@@ -24,11 +24,10 @@ name: experimental lanes
 #   - once every lane run for the branch's current commit has finished, the
 #     "Lanes" block of the status issue's body gets one row for the milestone:
 #     its head, the state of the head's lanes, the last result -- its commit,
-#     how many lanes passed, each lane that did not by name -- and its newest
-#     preview.
-#     The body is the current state; a comment is written only when a commit's
-#     lanes finished with one not passed, once per commit, and it mentions the
-#     maintainer. A lane run is finished when each of its jobs has a result:
+#     how many lanes passed, each lane that did not by name -- the result
+#     before it, and its newest preview.
+#     The body is the current state and nothing comments on the issue: the
+#     result before the last is what a comment used to keep. A lane run is finished when each of its jobs has a result:
 #     GitHub can take many minutes to mark the run itself completed, and the
 #     dispatch that asked for this look came from its last job;
 #   - once every lane run for a milestone's current commit has finished,
@@ -60,7 +59,7 @@ on:
         type: string
         default: ''
       dry_run:
-        description: Print the body block and any comment on the run's summary instead of writing them; rerun and start nothing
+        description: Print the body block on the run's summary instead of writing it; rerun and start nothing
         type: boolean
         default: false
 
@@ -131,7 +130,6 @@ jobs:
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           LANES_URL: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/pipeline-select-run-lanes.yml
-          NOTIFY: bonomani
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
           # Previews are published by the night run only: any other look --
           # after a lane run, after a promotion, the daily one, by hand --
@@ -161,10 +159,10 @@ jobs:
           body=""
           [ -z "$num" ] || body=$(gh issue view "$num" -R "$REPO" --json body -q .body)
           # The block as it stands. A row is | milestone | head | state | last
-          # result | preview |: the head is the branch's current commit, and
-          # the last result names the commit it is for, which may be older.
-          # Those results are the memory of what was reported, so a commit
-          # whose misses were already commented on is not commented on again.
+          # result | previous result | preview |: the head is the branch's
+          # current commit, and the last result names the commit it is for,
+          # which may be older. A row of the format before has no previous
+          # result.
           old=$(sed -n '/^<!-- lanes -->$/,/^<!-- \/lanes -->$/p' <<< "$body" | sed '1d;$d')
           old_row() { grep -E "^\| $1 \| " <<< "$old" | head -1 || true; }
           # The last result of a row; from a row of the format before, | m |
@@ -172,10 +170,11 @@ jobs:
           # its lanes cell is a result.
           old_last() {
             old_row "$1" | awk -F' [|] ' '
-              NF == 5 { print $4 }
+              NF == 6 || NF == 5 { print $4 }
               NF == 4 && $3 ~ /pass/ { sub(/ Lanes on .*/, "", $4); sub(/ [|]$/, "", $4); print $2 " " $3 ", " $4 }'
           }
-          old_result_commit() { old_last "$1" | sed -n 's/^`\([0-9a-f]*\)`.*/\1/p'; }
+          # The result before the last, from a row of the current format.
+          old_prev() { old_row "$1" | awk -F' [|] ' 'NF == 6 { print $5 }'; }
           # The newest preview of a milestone, and whether it is still a draft.
           releases=$(gh release list -R "$REPO" -L 100 --json tagName,isDraft,publishedAt)
           preview_of() {
@@ -185,10 +184,16 @@ jobs:
               | max_by(.n) // empty
               | if .isDraft then "`\(.tagName)`, draft" else "`\(.tagName)`, published \(.publishedAt[:10])" end' <<< "$releases"
           }
-          # row MILESTONE HEAD STATE LAST -- one row of the block.
+          # row MILESTONE HEAD STATE [LAST] -- one row of the block. Without
+          # LAST, the row keeps the last and previous results it had; with a
+          # LAST that differs from the one it had, that one becomes the
+          # previous result.
           row() {
-            local p; p=$(preview_of "$1")
-            echo "| $1 | \`$2\` | $3 | ${4:-none yet} | ${p:-none} |" >> rows.md
+            local p last prev
+            p=$(preview_of "$1")
+            last=$(old_last "$1") prev=$(old_prev "$1")
+            if [ -n "${4:-}" ] && [ "$4" != "$last" ]; then prev=$last last=$4; fi
+            echo "| $1 | \`$2\` | $3 | ${last:-none yet} | ${prev:-none} | ${p:-none} |" >> rows.md
           }
 
           branches=$(gh api "repos/$REPO/branches" --paginate -q '.[] | "\(.name) \(.commit.sha)"')
@@ -199,7 +204,6 @@ jobs:
           # six hours ago (scripts/night.sh), whatever the clock says.
           if [ -n "$NIGHT" ]; then night=1; else night=$(scripts/night.sh "$REPO" 2>>"$GITHUB_STEP_SUMMARY"); fi
           : > rows.md
-          : > comments.md
           green=
           while read -r BRANCH SHA; do
             ms=${BRANCH#experimental/}
@@ -211,7 +215,7 @@ jobs:
             if [ "$BRANCH" = "experimental/$oldest" ] \
                && [ "$(awk -v b="candidate/$oldest" '$1 == b { print $2 }' <<< "$branches")" != "$SHA" ]; then
               echo "$BRANCH $short: a candidate replacing it is under test; not reported" >> "$GITHUB_STEP_SUMMARY"
-              row "$ms" "$short" "a candidate replacing it is under test" "$(old_last "$ms")"
+              row "$ms" "$short" "a candidate replacing it is under test"
               continue
             fi
             runs=$(gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml --commit "$SHA" -L 100 \
@@ -220,7 +224,7 @@ jobs:
               # The oldest milestone's lanes start when its branch moves
               # (experimental-promote.yml), the others' when the chain reaches
               # them (scripts/chain.sh), which says what this one waits for.
-              row "$ms" "$short" "$(scripts/chain.sh wait "$ms" <<< "$heads")" "$(old_last "$ms")"
+              row "$ms" "$short" "$(scripts/chain.sh wait "$ms" <<< "$heads")"
               continue
             fi
             busy=0
@@ -246,7 +250,7 @@ jobs:
             done <<< "$runs"
             if [ "$busy" = 1 ]; then
               # Lanes still running: the last finished result stays.
-              row "$ms" "$short" "[running]($link)" "$(old_last "$ms")"
+              row "$ms" "$short" "[running]($link)"
               echo "$BRANCH $short: lanes running; not reported" >> "$GITHUB_STEP_SUMMARY"
               continue
             fi
@@ -307,29 +311,16 @@ jobs:
               heads=$(sed "s|^$next 0\$|$next 1|" <<< "$heads")
               echo "chain: lanes started on experimental/$next" >> "$GITHUB_STEP_SUMMARY"
             fi
-            # One comment per commit whose lanes did not all pass. A commit the
-            # block already shows with that result was commented on when it
-            # first finished.
-            if [ "$bad" -gt 0 ] && [ "$(old_result_commit "$ms")" != "$short" ]; then
-              {
-                echo "@$NOTIFY lanes on \`$BRANCH\` at \`$short\`: $bad of $total did not pass ([runs]($link))."
-                echo
-                echo "| lane | result |"
-                echo "|---|---|"
-                awk -F'\t' '{ printf "| %s | %s |\n", $1, $2 }' bad.tsv
-                echo
-              } >> comments.md
-            fi
           done < <(grep '^experimental/' <<< "$branches" | sort -V)
 
           {
             echo "<!-- lanes -->"
             echo "## Lanes"
             echo
-            echo "Written by the \`experimental lanes\` workflow each time a lane run finishes, and once a day; the latest look is [this run]($RUN_URL). The head is each branch's current commit; the last result names the commit it is for."
+            echo "Written by the \`experimental lanes\` workflow each time a lane run finishes, and once a day; the latest look is [this run]($RUN_URL). The head is each branch's current commit; each result names the commit it is for. The previous result is the one before the last."
             echo
-            echo "| milestone | head | state | last result | preview |"
-            echo "|---|---|---|---|---|"
+            echo "| milestone | head | state | last result | previous result | preview |"
+            echo "|---|---|---|---|---|---|"
             sort -V -r rows.md
             echo "<!-- /lanes -->"
           } > block.md
@@ -357,10 +348,7 @@ jobs:
           fi
 
           if [ -n "$DRY_RUN" ]; then
-            { echo; echo "## Dry run: the Lanes block"; echo; cat block.md
-              echo; echo "## Dry run: comments"; echo
-              if [ -s comments.md ]; then cat comments.md; else echo "none"; fi
-            } >> "$GITHUB_STEP_SUMMARY"
+            { echo; echo "## Dry run: the Lanes block"; echo; cat block.md; } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           [ -n "$num" ] || { echo "::warning::no open issue titled \"$title\"; nothing written"; exit 0; }
@@ -378,4 +366,3 @@ jobs:
                  END { if (!done) printf "\n%s", blk }' block.md <(printf '%s\n' "$body") > body.md
           fi
           gh issue edit "$num" -R "$REPO" --body-file body.md > /dev/null
-          [ -s comments.md ] && gh issue comment "$num" -R "$REPO" --body-file comments.md > /dev/null || true

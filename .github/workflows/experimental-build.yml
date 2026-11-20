@@ -338,8 +338,8 @@ jobs:
 
   # The report, as one issue rewritten by every run; the "Lanes" block that
   # experimental-lanes.yml writes into it is carried over unchanged. The body
-  # is the current state; a comment is written only when something is left
-  # out and that set changed, and it mentions the maintainer. Then the run
+  # is the current state, with what was left out before the set last changed;
+  # nothing comments on the issue. Then the run
   # fails if anything was left out, so the run list shows it and GitHub emails
   # whoever last edited the schedule. The branches are published either way.
   report:
@@ -359,16 +359,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          NOTIFY: bonomani
         run: |
           set -euo pipefail
           title="Experimental build: current state"
           num=$(gh issue list -R "$REPO" --state open --search "in:title \"$title\"" --json number,title \
                   -q ".[] | select(.title == \"$title\") | .number" | head -1)
-          old="" lanes=""
+          old="" before="" lanes=""
           if [ -n "$num" ]; then
             body=$(gh issue view "$num" -R "$REPO" --json body -q .body)
             old=$(sed -n '/^<!-- left-out$/,/^-->$/p' <<< "$body" | sed '1d;$d')
+            before=$(sed -n '/^<!-- left-out-before$/,/^-->$/p' <<< "$body" | sed '1d;$d')
             lanes=$(sed -n '/^<!-- lanes -->$/,/^<!-- \/lanes -->$/p' <<< "$body")
           fi
           if [ -z "$lanes" ]; then
@@ -376,6 +376,9 @@ jobs:
               "No lane result yet: the \`experimental lanes\` workflow writes this block." "<!-- /lanes -->")
           fi
           new=$(sort left-out.txt)
+          # What was left out before the set last changed: the set this build
+          # replaces, or, when it replaces nothing, the one recorded before.
+          [ "$new" = "$old" ] || before=$old
           {
             echo "Rewritten by each run of the experimental build; the latest is [this run]($RUN_URL)."
             echo
@@ -387,6 +390,12 @@ jobs:
               echo "**Nothing left out.**"
             fi
             echo
+            if [ -n "$before" ]; then
+              echo "**Left out before the last change:** $(printf '%s\n' "$before" | sed 's/ left out:.*//' | tr '\n' ' ')"
+            else
+              echo "**Left out before the last change:** nothing"
+            fi
+            echo
             printf '%s\n' "$lanes"
             echo
             cat EXPERIMENTAL.md
@@ -394,21 +403,14 @@ jobs:
             echo "<!-- left-out"
             printf '%s\n' "$new"
             echo "-->"
+            echo "<!-- left-out-before"
+            printf '%s\n' "$before"
+            echo "-->"
           } > body.md
           if [ -z "$num" ]; then
             num=$(gh issue create -R "$REPO" --title "$title" --body-file body.md | sed 's|.*/||')
           else
             gh issue edit "$num" -R "$REPO" --body-file body.md > /dev/null
-          fi
-          # The body says when nothing is left out any more; a comment is for
-          # what someone has to act on.
-          if [ -s left-out.txt ] && [ "$new" != "$old" ]; then
-            {
-              echo "@$NOTIFY what this build leaves out has changed ([run]($RUN_URL))."
-              echo
-              sed 's/^/- /' left-out.txt
-            } > comment.md
-            gh issue comment "$num" -R "$REPO" --body-file comment.md > /dev/null
           fi
 
       - name: Fail the run if anything was left out

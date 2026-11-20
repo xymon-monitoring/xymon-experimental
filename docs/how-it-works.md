@@ -135,11 +135,9 @@ schedule.
 
 The issue "Experimental build: current state" is rewritten by every run with
 the latest report, what is left out at the top and the "Lanes" block, written
-by `experimental lanes`, carried over. The body is the current state; its
-edit history keeps the earlier ones. A comment is written only for what
-someone has to act on: when something is left out and that set changed, one
-comment mentions the maintainer. Nothing being left out any more is said by
-the body alone.
+by `experimental lanes`, carried over. The body is the current state, with
+what was left out before that set last changed; its edit history keeps the
+earlier ones. Nothing comments on the issue.
 
 A glue patch whose change is already in main -- the pull requests it joins
 have merged with it -- is reported as obsolete, a notice rather than a
@@ -161,7 +159,8 @@ status is not waited for, since GitHub can leave it "in progress" long after
 the last job ended. Once every lane run for the branch's current commit has
 finished, the "Lanes" block of the status issue's body gets the milestone's
 row. Its columns are the branch's current commit (the head); the state of the
-head's lanes (done, running, or what it waits for); and the last result. The
+head's lanes (done, running, or what it waits for); the last result; and the
+result before it, which a new result moves there. The
 last result gives the commit it is for, how many lanes passed, each lane that
 did not by name with its result, how many passed only on a rerun, and when
 the last of them finished, linked to the runs. The last column is the
@@ -169,11 +168,9 @@ milestone's newest preview, published or still a draft. The last result stays
 while a newer commit's lanes run or wait, and while a candidate replacing the
 oldest milestone is under test, so the head and the last result's commit can
 differ. A milestone whose head has no lanes yet says what it waits for: the
-oldest milestone's lanes, or the night run. A comment is written only when a commit's lanes finished with one not passed,
-once per commit, and it mentions the maintainer; a commit whose lanes all
-passed changes the body and nothing else. The workflow's `dry_run` input
-prints the block and any comment on the run's summary instead of writing
-them.
+oldest milestone's lanes, or the night run. Nothing comments on the issue.
+The workflow's `dry_run` input prints the block on the run's summary instead
+of writing it.
 
 ## When it runs
 

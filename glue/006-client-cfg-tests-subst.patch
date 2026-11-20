@@ -1,0 +1,67 @@
+Needs: #905 #906 #919
+#905's and #906's tests look for the sed form of the xymonclient.cfg substitution (s!@VAR@!...!); with #919 the rule names the variables to build/subst.sh, so the tests accept either form, the resolved value included.
+
+diff --git a/tests/buildsystem/xymon-sh-pidfile-dir.sh b/tests/buildsystem/xymon-sh-pidfile-dir.sh
+index 6cdb0a8c6..d5e1b7115 100755
+--- a/tests/buildsystem/xymon-sh-pidfile-dir.sh
++++ b/tests/buildsystem/xymon-sh-pidfile-dir.sh
+@@ -101,14 +101,16 @@ grep -qE '^XYMONCLIENTRUNDIR="@XYMONCLIENTRUNDIR@"' "$clientcfgdist" \
+ 
+ # Every placeholder the client configuration uses must be substituted by the
+ # rule that generates it, or the installed xymonclient.cfg keeps the literal
+-# @VAR@ and hands it to every client program as a path.
++# @VAR@ and hands it to every client program as a path. The rule writes them
++# with sed (s!@VAR@!...!) or names them to build/subst.sh.
+ clientmk="$ROOT/client/Makefile"
+ [ -f "$clientmk" ] || fail "missing $clientmk"
+ crule=$(grep -F 'xymonclient.cfg.DIST' "$clientmk")
+ [ -n "$crule" ] || fail "cannot find the line that generates xymonclient.cfg in client/Makefile"
+ for var in $(grep -oE '@[A-Z_]+@' "$clientcfgdist" | sort -u); do
++	name=${var#@}; name=${name%@}
+ 	case $crule in
+-		*"$var"*) ;;
++		*"$var"*|*"subst.sh"*" $name"*) ;;
+ 		*) fail "xymonclient.cfg.DIST uses $var but client/Makefile does not substitute it: the installed file would keep it literal and hand it to every client program as a path" ;;
+ 	esac
+ done
+@@ -117,7 +119,7 @@ done
+ # raw knob: otherwise a default build would write XYMONCLIENTRUNDIR="" rather
+ # than naming the client's log directory.
+ case $crule in
+-	*'@XYMONCLIENTRUNDIR@!$(XYMONCLIENTRUNDIRSUB)'*) ;;
++	*'@XYMONCLIENTRUNDIR@!$(XYMONCLIENTRUNDIRSUB)'*|*"XYMONCLIENTRUNDIR='\$(XYMONCLIENTRUNDIRSUB)'"*) ;;
+ 	*) fail "client/Makefile does not substitute @XYMONCLIENTRUNDIR@ with its resolved value, so a default build would not name \$XYMONCLIENTLOGS" ;;
+ esac
+ 
+diff --git a/tests/buildsystem/xymonclient-cfg-dirs.sh b/tests/buildsystem/xymonclient-cfg-dirs.sh
+index 0f606b4d8..71b494230 100755
+--- a/tests/buildsystem/xymonclient-cfg-dirs.sh
++++ b/tests/buildsystem/xymonclient-cfg-dirs.sh
+@@ -36,11 +36,12 @@ done
+ 
+ # The rule that generates xymonclient.cfg substitutes both placeholders, or the
+ # installed file keeps a literal @VAR@ and hands it to the client as a path.
++# The rule writes them with sed (s!@VAR@!...!) or names them to build/subst.sh.
+ crule=$(grep -F 'xymonclient.cfg.DIST' "$mk")
+ [ -n "$crule" ] || fail "cannot find the line that generates xymonclient.cfg in client/Makefile"
+ for v in XYMONTMP XYMONCLIENTLOGS; do
+ 	case $crule in
+-		*"@$v@"*) ;;
++		*"@$v@"*|*"subst.sh"*" $v"*) ;;
+ 		*) fail "xymonclient.cfg.DIST uses @$v@ but client/Makefile does not substitute it: the installed file would keep it literal" ;;
+ 	esac
+ done
+@@ -48,11 +49,11 @@ done
+ # with $(XYMONTMP) rather than $(XYMONTMPSUB) would write XYMONTMP="" into a
+ # default build, which has no runtime default to fall back on.
+ case $crule in
+-	*'@XYMONTMP@!$(XYMONTMPSUB)'*) ;;
++	*'@XYMONTMP@!$(XYMONTMPSUB)'*|*"XYMONTMP='\$(XYMONTMPSUB)'"*) ;;
+ 	*) fail "client/Makefile does not substitute @XYMONTMP@ with its resolved value $(XYMONTMPSUB)" ;;
+ esac
+ case $crule in
+-	*'@XYMONCLIENTLOGS@!$(XYMONCLIENTLOGSSUB)'*) ;;
++	*'@XYMONCLIENTLOGS@!$(XYMONCLIENTLOGSSUB)'*|*"XYMONCLIENTLOGS='\$(XYMONCLIENTLOGSSUB)'"*) ;;
+ 	*) fail "client/Makefile does not substitute @XYMONCLIENTLOGS@ with its resolved value $(XYMONCLIENTLOGSSUB)" ;;
+ esac
+ 

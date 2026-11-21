@@ -102,6 +102,8 @@ By default (the "standard"), and with "\-\-dns=only", xymonnet looks up
 the hostname of a 0.0.0.0 host; if that fails, all services on that host
 are reported as being down. The host is tested at its IPv4 address, or at
 its IPv6 address if it has none.
+The host of an http or https URL that is looked up \(em on a 0.0.0.0 line,
+or the host of a proxy \(em gets the same fallback.
 .br
 With "\-\-dns=ip" xymonnet does no lookup at all, so a 0.0.0.0 host
 cannot be tested.

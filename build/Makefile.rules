@@ -273,10 +273,7 @@ export INSTALLENVDIR
 install-systemd:
 ifneq ($(strip $(INSTALLSYSTEMDDIR)),)
 	mkdir -p $(INSTALLROOT)$(INSTALLSYSTEMDDIR)
-	sed -e 's!@XYMONHOME@!$(XYMONHOME)!g' \
-	    -e 's!@XYMONUSER@!$(XYMONUSER)!g' \
-	    -e 's!@INSTALLENVDIR@!$(INSTALLENVDIR)!g' \
-	    tools/xymonlaunch.service.DIST > $(INSTALLROOT)$(INSTALLSYSTEMDDIR)/xymonlaunch.service
+	XYMONHOME='$(XYMONHOME)' XYMONUSER='$(XYMONUSER)' INSTALLENVDIR='$(INSTALLENVDIR)' build/subst.sh XYMONHOME XYMONUSER INSTALLENVDIR <tools/xymonlaunch.service.DIST >$(INSTALLROOT)$(INSTALLSYSTEMDDIR)/xymonlaunch.service
 	chmod 644 $(INSTALLROOT)$(INSTALLSYSTEMDDIR)/xymonlaunch.service
 endif
 

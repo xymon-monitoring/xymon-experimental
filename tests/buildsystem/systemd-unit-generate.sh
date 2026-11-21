@@ -38,7 +38,8 @@ placeholders=$(grep -oE '@[A-Z_]+@' "$dist" | sort -u)
 [ -n "$placeholders" ] || fail "tools/xymonlaunch.service.DIST carries no @PLACEHOLDER@ to substitute"
 for ph in $placeholders; do
 	name=${ph#@}; name=${name%@}
-	grep -qF "$ph!\$($name)" "$rules" \
+	# sed (s!@VAR@!$(VAR)!) or build/subst.sh (VAR='$(VAR)' ... subst.sh VAR)
+	{ grep -qF "$ph!\$($name)" "$rules" || grep -qF "$name='\$($name)'" "$rules"; } \
 		|| fail "build/Makefile.rules install-systemd does not substitute $ph with \$($name): the installed unit would keep it literal"
 done
 

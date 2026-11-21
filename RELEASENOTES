@@ -476,6 +476,11 @@ XYMSRV=127.0.0.1". Remote clients are unchanged. A server started with
 --status-senders must then list 127.0.0.1 there: xymond takes a host's client
 data from that host's own address or from one listed, and 127.0.0.1 is neither.
 
+xymonnet -- take an IPv6 source address for --source-ip and a test's "@ADDRESS"
+-------------------------------------------------------------------------------
+Both were IPv4 only: an IPv6 --source-ip was refused, and a test's "@ADDRESS"
+never bound for an IPv6 host. Both now accept either family and bind a source
+for tests of its own family. A site that sets an IPv4 source sees no change.
 
 Changes for 4.3.31
 ==================

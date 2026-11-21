@@ -255,16 +255,17 @@ jobs:
               continue
             fi
             sort -t$'\t' -k1,1 -u all.tsv > lanes.tsv
-            total=$(wc -l < lanes.tsv | tr -d ' ')
-            awk -F'\t' '$2 != "success" && $2 != "skipped"' lanes.tsv > bad.tsv
-            bad=$(wc -l < bad.tsv | tr -d ' ')
-            reruns=$(awk -F'\t' '$2 == "success" && $4 == "rerun"' lanes.tsv | wc -l | tr -d ' ')
-            if [ "$bad" -eq 0 ]; then
-              cell="all $total passed"
-            else
-              cell="$bad of $total did not pass: $(awk -F'\t' '{ printf "%s%s (%s)", (NR > 1 ? ", " : ""), $1, $2 }' bad.tsv)"
+            # No lane listed yet is no result (scripts/lanes-cell.sh): report
+            # the lanes as running, and chain nothing.
+            rc=0; cell=$(scripts/lanes-cell.sh lanes.tsv) || rc=$?
+            [ "$rc" -eq 0 ] || [ "$rc" -eq 2 ] || exit "$rc"
+            if [ "$rc" -eq 2 ]; then
+              row "$ms" "$short" "[running]($link)"
+              echo "$BRANCH $short: no lane listed yet; not reported" >> "$GITHUB_STEP_SUMMARY"
+              continue
             fi
-            [ "$reruns" -eq 0 ] || cell="$cell; $reruns passed on a rerun"
+            total=$(wc -l < lanes.tsv | tr -d ' ')
+            bad=$(awk -F'\t' '$2 != "success" && $2 != "skipped"' lanes.tsv | wc -l | tr -d ' ')
             # The time in the row is when the last of these lanes finished,
             # not when this workflow looked: the block is rewritten whenever
             # any milestone's lanes finish, so the look is often days later

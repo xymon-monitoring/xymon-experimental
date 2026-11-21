@@ -36,11 +36,12 @@ done
 
 # The rule that generates xymonclient.cfg substitutes both placeholders, or the
 # installed file keeps a literal @VAR@ and hands it to the client as a path.
+# The rule writes them with sed (s!@VAR@!...!) or names them to build/subst.sh.
 crule=$(grep -F 'xymonclient.cfg.DIST' "$mk")
 [ -n "$crule" ] || fail "cannot find the line that generates xymonclient.cfg in client/Makefile"
 for v in XYMONTMP XYMONCLIENTLOGS; do
 	case $crule in
-		*"@$v@"*) ;;
+		*"@$v@"*|*"subst.sh"*" $v"*) ;;
 		*) fail "xymonclient.cfg.DIST uses @$v@ but client/Makefile does not substitute it: the installed file would keep it literal" ;;
 	esac
 done
@@ -48,11 +49,11 @@ done
 # with $(XYMONTMP) rather than $(XYMONTMPSUB) would write XYMONTMP="" into a
 # default build, which has no runtime default to fall back on.
 case $crule in
-	*'@XYMONTMP@!$(XYMONTMPSUB)'*) ;;
+	*'@XYMONTMP@!$(XYMONTMPSUB)'*|*"XYMONTMP='\$(XYMONTMPSUB)'"*) ;;
 	*) fail "client/Makefile does not substitute @XYMONTMP@ with its resolved value $(XYMONTMPSUB)" ;;
 esac
 case $crule in
-	*'@XYMONCLIENTLOGS@!$(XYMONCLIENTLOGSSUB)'*) ;;
+	*'@XYMONCLIENTLOGS@!$(XYMONCLIENTLOGSSUB)'*|*"XYMONCLIENTLOGS='\$(XYMONCLIENTLOGSSUB)'"*) ;;
 	*) fail "client/Makefile does not substitute @XYMONCLIENTLOGS@ with its resolved value $(XYMONCLIENTLOGSSUB)" ;;
 esac
 

@@ -486,6 +486,11 @@ xymond_channel, xymond_worker -- reach a network worker over IPv6
 A network worker's --listen and the channel that connects to it were IPv4
 only. Both now take IPv6 and names, as [addr]:port or name:port. A name that
 resolves to IPv4 is still used, so an existing locator setup is unchanged.
+msgcache, xymonfetch -- pull client data over IPv6
+--------------------------------------------------
+msgcache's --listen and xymonfetch's pulldata address were IPv4 only; both
+now take IPv6 and names. A sender is checked against the IPv6 entries of the
+access lists too, so a client reporting from its IPv6 address is let through.
 
 Changes for 4.3.31
 ==================

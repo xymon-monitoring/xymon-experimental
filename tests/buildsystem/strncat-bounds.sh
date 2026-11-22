@@ -68,10 +68,17 @@ assert_equal "3" "$(wc -l <"$work/probe" | tr -d " ")" \
 
 # --- the tree, counted per file ---------------------------------------------
 : >"$work/found"
-# find, not git ls-files: the test runs where the tree is not a git
-# checkout (a release tarball, a lane container without git), where
-# git ls-files is empty and every site would read as removed.
-for f in $(cd "$ROOT" && find . -name .git -prune -o -type f -name '*.c' -print | sed 's|^\./||' | sort); do
+# git ls-files where it works, find where it does not. git ls-files lists
+# the tracked .c, and ignores an untracked scratch .c a developer dropped in
+# the tree, which find would count. Where the tree is not a git checkout -- a
+# release tarball, a lane container without git -- git ls-files is empty and
+# every site would read as removed, so find lists the .c there instead.
+if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+	cfiles=$(cd "$ROOT" && git ls-files '*.c')
+else
+	cfiles=$(cd "$ROOT" && find . -name .git -prune -o -type f -name '*.c' -print | sed 's|^\./||' | sort)
+fi
+for f in $cfiles; do
 	awk -v FILE="$f" -f "$detector" "$ROOT/$f" >>"$work/found" || true
 done
 awk -F: '{ print $1 }' "$work/found" | sort | uniq -c \

@@ -473,6 +473,11 @@ xymonnet -- take an IPv6 source address for --source-ip and a test's "@ADDRESS"
 Both were IPv4 only: an IPv6 --source-ip was refused, and a test's "@ADDRESS"
 never bound for an IPv6 host. Both now accept either family and bind a source
 for tests of its own family. A site that sets an IPv4 source sees no change.
+msgcache, xymonfetch -- pull client data over IPv6
+--------------------------------------------------
+msgcache's --listen and xymonfetch's pulldata address were IPv4 only; both
+now take IPv6 and names. A sender is checked against the IPv6 entries of the
+access lists too, so a client reporting from its IPv6 address is let through.
 
 Changes for 4.3.31
 ==================

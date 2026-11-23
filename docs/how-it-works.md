@@ -59,7 +59,8 @@ The `experimental preview` workflow, run by hand for a milestone, tags
 `experimental/<milestone>` as `preview-<milestone>-<N>`, makes its two
 tarballs as xymon's own releases are made, and drafts a pre-release that
 lists each pull request and what changed since the preview before. It starts
-the lanes on the same commit, and `experimental lanes` publishes the draft
+the lanes on the same commit, on every release of each family unless such
+lanes ran there already, and `experimental lanes` publishes the draft
 once every lane on that commit has passed, whatever the milestone -- on its
 night run only (scheduled at 01:47 UTC, started hours later), never on the looks that
 follow a lane run or a promotion. The newest milestone's weekly preview is
@@ -99,13 +100,27 @@ repository's schedules hours late (the 01:47 UTC one around 08:00 in November
 `tests/chain-next.sh` pins them. With one milestone open, the oldest's lanes
 are all there is.
 
+A family is several releases -- FreeBSD 14.3 to 15.1, five of them -- and the
+server lanes of the sixteen families are 47 VMs, each installing Xymon and
+running its test suite. The promotion and the chain start the lanes on the
+newest release of each family only, 16 lanes: a change is usually checked well
+enough on one release, and the oldest milestone's lanes start each time its
+branch moves, several times on a busy day. Two things still run every
+release: the newest milestone's lanes, since its weekly preview is published
+from them, and the lanes a preview starts. Only runs on every release count
+towards publishing a preview (`scripts/full-lane-runs.sh`); a run on the
+newest releases says so in its name. `scripts/start-lanes.sh` starts them all,
+`tests/start-lanes.sh` pins it, and `start-lanes.sh REPO MILESTONE all` runs
+every release on a milestone by hand.
+
 Lanes still running on the oldest milestone are cancelled as soon as a
 candidate with different code is pushed: they test code about to be replaced,
 and hold the runners the candidate's `build` and `tests` would queue for. The
 lanes report skips that milestone until the candidate is promoted. If it fails,
 the milestone has no lane results until a build passes. A rebuild of the same
 code cancels nothing, and another milestone's lanes (chained ones, a
-preview's) are left alone.
+preview's) are left alone. Whenever lanes are started on a milestone, those
+still running on an earlier commit of its branch are cancelled first.
 
 A released milestone is retired by the build. Once it is closed on
 `xymon-monitoring/xymon` and the build integrated no pull request for it --

@@ -4,9 +4,11 @@ name: experimental promote
 # tests workflows have both passed on it; a candidate that fails moves nothing,
 # so the branch keeps the last build that passed. When the oldest milestone
 # moves -- the release being driven, which the later ones stack on -- the lanes
-# are started on it, and those still running for an earlier commit are
-# cancelled. The later milestones' lanes are chained from there
-# (experimental-lanes.yml, scripts/chain.sh).
+# are started on it, on the newest release of each family unless it is also
+# the newest milestone, and those still running for an earlier commit are
+# cancelled (scripts/start-lanes.sh). The
+# later milestones' lanes are chained from there (experimental-lanes.yml,
+# scripts/chain.sh).
 #
 # Runs from main only (workflow_run always does), and runs no pull-request
 # code: it reads run results and pushes a commit already tested.
@@ -72,24 +74,21 @@ jobs:
 
           oldest=$(gh api "repos/$REPO/branches" --paginate -q '.[].name' | sed -n 's|^candidate/||p' | sort -V | head -1)
           if [ "$m" = "$oldest" ]; then
-            # Lanes still running for an earlier commit of this branch test code
-            # that is gone, and their macOS jobs hold the few macOS runners the
-            # organisation gets at once: cancel them before starting the new
-            # ones. Only this branch's: a preview's lanes run on its own
-            # milestone's branch (experimental-preview.yml), and a later
-            # milestone's chained lanes are left to finish.
-            # The family list is also in scripts/start-lanes.sh.
-            gh run list -R "$REPO" --workflow pipeline-select-run-lanes.yml -L 100 \
-              --json databaseId,status,headSha,headBranch \
-              -q ".[] | select(.status != \"completed\" and .headSha != \"$SHA\" and .headBranch == \"experimental/$m\") | .databaseId" \
-              | while read -r old; do gh run cancel "$old" -R "$REPO" || true; done
-            for f in alpine archlinux centos7 debian amazonlinux freebsd netbsd openbsd opensuse rockylinux almalinux fedora oraclelinux ubuntu solaris; do
-              gh workflow run pipeline-select-run-lanes.yml -R "$REPO" --ref "experimental/$m" \
-                -f family="$f" -f arch=amd64 -f variant=server -f verify_depth=test
-            done
-            gh workflow run pipeline-select-run-lanes.yml -R "$REPO" --ref "experimental/$m" \
-              -f family=macos -f arch=all -f variant=server -f verify_depth=test
-            echo "lanes started on experimental/$m" >> "$GITHUB_STEP_SUMMARY"
+            # scripts/start-lanes.sh first cancels the lanes still running for
+            # an earlier commit of this branch: they test code that is gone, and
+            # their macOS jobs hold the few macOS runners the organisation gets
+            # at once. Only this branch's: another milestone's lanes are left
+            # to finish. This job checks nothing out, so the script is read
+            # from main, the commit this workflow itself runs from.
+            gh api "repos/$REPO/contents/scripts/start-lanes.sh?ref=$GITHUB_SHA" \
+              -H 'Accept: application/vnd.github.raw' > ../start-lanes.sh
+            # The newest milestone's lanes run every release, the others'
+            # the newest (scripts/start-lanes.sh says why): with one milestone
+            # open, this one is both.
+            newest=$(gh api "repos/$REPO/branches" --paginate -q '.[].name' | sed -n 's|^candidate/||p' | sort -V | tail -1)
+            pol=newest; [ "$m" != "$newest" ] || pol=all
+            bash ../start-lanes.sh "$REPO" "$m" "$pol"
+            echo "lanes started on experimental/$m (releases: $pol)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           # The status issue's Lanes block names each branch's head: look now,

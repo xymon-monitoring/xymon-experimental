@@ -161,7 +161,10 @@ jobs:
           # main, a release branch) has not brought its changes here. A commit
           # this clone does not have is not in main either. Only the numbers
           # that are not open pull requests are asked about.
-          { head -qn1 ../experimental/glue/*.patch | sed 's/^Needs://' | tr ' ' '\n' | tr -d '#'
+          # glue/ may hold no patch, and git keeps no empty directory: each
+          # existing patch only, as scripts/integrate.sh reads them.
+          { for p in ../experimental/glue/*.patch; do [ -e "$p" ] || continue; head -n1 "$p"; done \
+              | sed 's/^Needs://' | tr ' ' '\n' | tr -d '#'
             jq -r '.[].body // "" | scan("(?m)^Depends-on: *#([0-9]+)") | .[0]' ../prs.json
           } | { grep -x '[0-9][0-9]*' || true; } | sort -un \
             | { grep -vxF -f <(jq -r '.[].number' ../prs.json) || true; } \

@@ -1,0 +1,25 @@
+Needs: #810 #1030
+#1030 keeps the last server reached in a struct in_addr *pserverip, as serverip was; #810 makes serverip a struct sockaddr *, so pserverip takes that type too and its log line uses addrtext(), as #810's other lines do.
+
+diff --git a/xymonproxy/xymonproxy.c b/xymonproxy/xymonproxy.c
+index 2c4c4afb2..9a7a56a39 100644
+--- a/xymonproxy/xymonproxy.c
++++ b/xymonproxy/xymonproxy.c
+@@ -78,7 +78,7 @@ typedef struct conn_t {
+ 	int snum;
+ 	int ssocket;
+ 	int psocket;			/* Last server reached, kept for its answer: see answer_from_kept() */
+-	struct in_addr *pserverip;
++	struct sockaddr *pserverip;
+ 	int conntries, sendtries;
+ 	int connectpending;
+ 	time_t conntime;
+@@ -241,7 +241,7 @@ static int answer_from_kept(conn_t *conn)
+ {
+ 	if ((conn->psocket < 0) || (conn->csocket < 0)) return 0;
+ 
+-	dbgprintf("Taking the answer from %s, the last server reached\n", inet_ntoa(*conn->pserverip));
++	dbgprintf("Taking the answer from %s, the last server reached\n", addrtext(conn->pserverip));
+ 	conn->ssocket = conn->psocket;
+ 	conn->serverip = conn->pserverip;
+ 	conn->psocket = -1;

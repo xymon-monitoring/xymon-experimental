@@ -78,7 +78,7 @@ typedef struct conn_t {
 	int snum;
 	int ssocket;
 	int psocket;			/* Last server reached, kept for its answer: see answer_from_kept() */
-	struct in_addr *pserverip;
+	struct sockaddr *pserverip;
 	int conntries, sendtries;
 	int connectpending;
 	time_t conntime;
@@ -241,7 +241,7 @@ static int answer_from_kept(conn_t *conn)
 {
 	if ((conn->psocket < 0) || (conn->csocket < 0)) return 0;
 
-	dbgprintf("Taking the answer from %s, the last server reached\n", inet_ntoa(*conn->pserverip));
+	dbgprintf("Taking the answer from %s, the last server reached\n", addrtext(conn->pserverip));
 	conn->ssocket = conn->psocket;
 	conn->serverip = conn->pserverip;
 	conn->psocket = -1;

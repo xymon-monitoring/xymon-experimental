@@ -1,0 +1,73 @@
+function(xymon_normalize_path out path_value)
+    set(_path "${path_value}")
+    if(_path STREQUAL "")
+        set(_path "/")
+    endif()
+
+    string(REPLACE "\\" "/" _path "${_path}")
+    string(REGEX REPLACE "/+" "/" _path "${_path}")
+    string(REGEX REPLACE "/\\./" "/" _path "${_path}")
+
+    while(_path MATCHES "/[^/]+/\\.\\./")
+        string(REGEX REPLACE "/[^/]+/\\.\\./" "/" _path "${_path}")
+    endwhile()
+
+    if(_path STREQUAL "")
+        set(_path "/")
+    endif()
+
+    set(${out} "${_path}" PARENT_SCOPE)
+endfunction()
+
+function(xymon_resolve_runtime_path out dest)
+    if(IS_ABSOLUTE "${dest}")
+        set(_path "${dest}")
+    else()
+        if(CMAKE_INSTALL_PREFIX STREQUAL "")
+            set(_prefix "/")
+        else()
+            set(_prefix "${CMAKE_INSTALL_PREFIX}")
+        endif()
+
+        if(_prefix STREQUAL "/" OR (_prefix STREQUAL "/usr" AND "${dest}" MATCHES "^(etc|var)(/|$)"))
+            set(_path "/${dest}")
+        else()
+            set(_path "${_prefix}/${dest}")
+        endif()
+    endif()
+
+    xymon_normalize_path(_path "${_path}")
+    set(${out} "${_path}" PARENT_SCOPE)
+endfunction()
+
+function(xymon_resolve_install_path out dest)
+    xymon_resolve_runtime_path(_runtime_path "${dest}")
+    set(_path "$ENV{DESTDIR}${_runtime_path}")
+    xymon_normalize_path(_path "${_path}")
+    set(${out} "${_path}" PARENT_SCOPE)
+endfunction()
+
+# xymon_install_dirs(DIR...) -- create each DIR, and every parent it lacks,
+# mode 755 whatever the umask, as the make build's install-dirs does: a
+# package built under umask 077 would otherwise ship directories the xymon
+# user cannot enter. file(MAKE_DIRECTORY) and install() both create under the
+# umask, so the mode is set afterwards. A directory that already exists keeps
+# its mode.
+function(xymon_install_dirs)
+    set(_made "")
+    foreach(_dir IN LISTS ARGN)
+        set(_d "${_dir}")
+        while(NOT EXISTS "${_d}")
+            list(APPEND _made "${_d}")
+            get_filename_component(_d "${_d}" DIRECTORY)
+        endwhile()
+        file(MAKE_DIRECTORY "${_dir}")
+    endforeach()
+    if(_made)
+        list(REMOVE_DUPLICATES _made)
+        execute_process(COMMAND chmod 755 ${_made} RESULT_VARIABLE _rc)
+        if(NOT _rc EQUAL 0)
+            message(FATAL_ERROR "chmod 755 failed on: ${_made}")
+        endif()
+    endif()
+endfunction()
